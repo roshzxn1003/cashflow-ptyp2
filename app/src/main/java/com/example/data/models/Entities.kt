@@ -121,3 +121,16 @@ data class ScannedItemEntity(
     val productName: String = "Unknown Product",
     val addedDateMillis: Long = System.currentTimeMillis()
 )
+
+@Entity(tableName = "user_profiles")
+data class UserProfileEntity(
+    @PrimaryKey
+    val id: String,
+    val fullName: String,
+    val email: String,
+    val avatarUrl: String? = null,
+    val serverId: String? = null,
+    val syncStatus: String = "SYNCED",
+    val updatedAt: Long = System.currentTimeMillis(),
+    val isDeleted: Boolean = false
+)

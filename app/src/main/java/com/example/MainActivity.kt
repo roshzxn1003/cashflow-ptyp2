@@ -206,6 +206,7 @@ fun CashFlowMainApp(viewModel: CashFlowViewModel) {
                 currencySymbol = uiState.currencySymbol,
                 onDismiss = { viewModel.closeVoiceDialog() },
                 onProcessPrompt = { prompt -> viewModel.processVoicePrompt(prompt) },
+                onProcessAudio = { audioBase64 -> viewModel.processAudioPrompt(audioBase64) },
                 onConfirmSave = { viewModel.confirmVoiceExpense() }
             )
         }

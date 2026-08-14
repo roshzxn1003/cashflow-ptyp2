@@ -333,7 +333,7 @@ fun BudgetsAndGoalsScreen(
                 }
             }
         } else {
-            items(filteredBudgets, key = { it.id }) { budget ->
+            items(filteredBudgets, key = { "budget_${it.id}" }) { budget ->
                 val categorySpent = remember(state.transactions, budget) {
                     calculateSpent(budget, state.transactions)
                 }
@@ -550,7 +550,7 @@ fun BudgetsAndGoalsScreen(
                 }
             }
         } else {
-            items(state.savingsGoals, key = { it.id }) { goal ->
+            items(state.savingsGoals, key = { "goal_${it.id}" }) { goal ->
                 val progress = if (goal.targetAmount > 0) (goal.currentAmount / goal.targetAmount).toFloat().coerceIn(0f, 1f) else 0f
                 val percentInt = (progress * 100).toInt()
 

@@ -119,7 +119,7 @@ fun TransactionsScreen(
                     label = { Text("All Categories", fontSize = 11.sp) }
                 )
             }
-            items(state.categories, key = { it.id }) { cat ->
+            items(state.categories, key = { "cat_${it.id}" }) { cat ->
                 FilterChip(
                     selected = state.selectedFilterCategory == cat.name,
                     onClick = {
@@ -152,7 +152,7 @@ fun TransactionsScreen(
                 modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(bottom = 90.dp)
             ) {
-                items(state.transactions, key = { it.id }) { tx ->
+                items(state.transactions, key = { "tx_${it.id}" }) { tx ->
                     TransactionItemCard(
                         transaction = tx,
                         currencySymbol = state.currencySymbol,

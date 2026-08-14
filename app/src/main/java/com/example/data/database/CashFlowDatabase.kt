@@ -12,6 +12,15 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
+
+val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `user_profiles` (`id` TEXT NOT NULL, `fullName` TEXT NOT NULL, `email` TEXT NOT NULL, `avatarUrl` TEXT, `serverId` TEXT, `syncStatus` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, `isDeleted` INTEGER NOT NULL, PRIMARY KEY(`id`))"
+        )
+    }
+}
+
 val MIGRATION_4_5 = object : Migration(4, 5) {
     override fun migrate(db: SupportSQLiteDatabase) {
         val tables = listOf("transactions", "categories", "budgets", "savings_goals", "families", "family_members")
@@ -58,9 +67,10 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
         SavingsGoalEntity::class,
         ScannedItemEntity::class,
         FamilyEntity::class,
-        FamilyMemberEntity::class
+        FamilyMemberEntity::class,
+        UserProfileEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class CashFlowDatabase : RoomDatabase() {
@@ -71,6 +81,7 @@ abstract class CashFlowDatabase : RoomDatabase() {
     abstract fun scannedItemDao(): ScannedItemDao
     abstract fun familyDao(): FamilyDao
     abstract fun familyMemberDao(): FamilyMemberDao
+    abstract fun userProfileDao(): UserProfileDao
 
     companion object {
         @Volatile
@@ -83,7 +94,7 @@ abstract class CashFlowDatabase : RoomDatabase() {
                     CashFlowDatabase::class.java,
                     "cashflow_database"
                 )
-                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .addCallback(DatabaseCallback(context.applicationContext))
                     .build()
                 INSTANCE = instance
@@ -119,105 +130,7 @@ abstract class CashFlowDatabase : RoomDatabase() {
                 )
                 database.categoryDao().insertCategories(categories)
 
-                // Seed Initial Sample Transactions
-                val now = System.currentTimeMillis()
-                val day = 86400000L
-
-                val sampleTransactions = listOf(
-                    TransactionEntity(
-                        title = "Monthly Salary",
-                        amount = 4500.0,
-                        type = TransactionType.INCOME,
-                        category = "Salary & Income",
-                        categoryIconName = "Payments",
-                        paymentMethod = "Bank Transfer",
-                        dateMillis = now - (1 * day),
-                        note = "July Paycheck"
-                    ),
-                    TransactionEntity(
-                        title = "Whole Foods Grocery",
-                        amount = 142.80,
-                        type = TransactionType.EXPENSE,
-                        category = "Food & Dining",
-                        categoryIconName = "Restaurant",
-                        paymentMethod = "Credit Card",
-                        dateMillis = now - (2 * day),
-                        note = "Weekly groceries"
-                    ),
-                    TransactionEntity(
-                        title = "Apartment Rent",
-                        amount = 1200.0,
-                        type = TransactionType.EXPENSE,
-                        category = "Housing & Rent",
-                        categoryIconName = "Home",
-                        paymentMethod = "Bank Transfer",
-                        dateMillis = now - (4 * day),
-                        note = "Monthly rent payment"
-                    ),
-                    TransactionEntity(
-                        title = "Gas Station Refill",
-                        amount = 45.0,
-                        type = TransactionType.EXPENSE,
-                        category = "Transportation",
-                        categoryIconName = "DirectionsCar",
-                        paymentMethod = "UPI",
-                        dateMillis = now - (5 * day),
-                        note = "Fuel for sedan"
-                    ),
-                    TransactionEntity(
-                        title = "Freelance Mobile Project",
-                        amount = 850.0,
-                        type = TransactionType.INCOME,
-                        category = "Freelance / Business",
-                        categoryIconName = "Work",
-                        paymentMethod = "UPI",
-                        dateMillis = now - (6 * day),
-                        note = "UI Design milestone"
-                    ),
-                    TransactionEntity(
-                        title = "Electricity & Water Bill",
-                        amount = 118.50,
-                        type = TransactionType.EXPENSE,
-                        category = "Bills & Utilities",
-                        categoryIconName = "Receipt",
-                        paymentMethod = "Credit Card",
-                        dateMillis = now - (8 * day),
-                        note = "Utility auto-pay"
-                    )
-                )
-                sampleTransactions.forEach { database.transactionDao().insertTransaction(it) }
-
-                // Seed Sample Budgets
-                val currentMonthYear = "2026-07"
-                database.budgetDao().insertOrUpdateBudget(
-                    BudgetEntity(categoryName = "Food & Dining", monthlyLimit = 500.0, monthYear = currentMonthYear)
-                )
-                database.budgetDao().insertOrUpdateBudget(
-                    BudgetEntity(categoryName = "Shopping", monthlyLimit = 300.0, monthYear = currentMonthYear)
-                )
-                database.budgetDao().insertOrUpdateBudget(
-                    BudgetEntity(categoryName = "Transportation", monthlyLimit = 200.0, monthYear = currentMonthYear)
-                )
-
-                // Seed Sample Savings Goal
-                database.savingsGoalDao().insertOrUpdateGoal(
-                    SavingsGoalEntity(
-                        title = "Emergency Savings Fund",
-                        targetAmount = 5000.0,
-                        currentAmount = 3200.0,
-                        targetDateMillis = now + (120 * day),
-                        colorHex = "#059669"
-                    )
-                )
-                database.savingsGoalDao().insertOrUpdateGoal(
-                    SavingsGoalEntity(
-                        title = "New Tech Laptop",
-                        targetAmount = 1800.0,
-                        currentAmount = 1100.0,
-                        targetDateMillis = now + (60 * day),
-                        colorHex = "#D97706"
-                    )
-                )
+                
             }
         }
     }

@@ -66,6 +66,7 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
     private val _isScannedBarcodeSheetShowing = MutableStateFlow(false)
 
     private val syncEngine: com.example.data.network.SyncEngine
+    private val userProfileRepository: com.example.data.repository.UserProfileRepository
     val authService = com.example.data.network.SupabaseAuthService()
 
     init {
@@ -84,11 +85,14 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
             database.familyDao(),
             authService
         )
+
+        userProfileRepository = com.example.data.repository.UserProfileRepository(database.userProfileDao())
         
         viewModelScope.launch {
             authService.restoreSession()
             authService.currentUser.collect { user ->
                 if (user != null) {
+                    userProfileRepository.syncProfile(user.id)
                     syncEngine.syncTransactions()
                 }
             }
@@ -108,14 +112,18 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
     private val _activeFamilyId = MutableStateFlow<String?>(null)
     val activeFamilyId: StateFlow<String?> = _activeFamilyId.asStateFlow()
 
-    val currentUserId = "local_user_1"
-    val currentUserName = "You"
+    val currentUserId: String
+        get() = authService.currentUser.value?.id ?: "local_user_1"
+    val currentUserName: String
+        get() = authService.currentUser.value?.email?.substringBefore("@") ?: "You"
 
     val activeFamily: Flow<FamilyEntity?> = _activeFamilyId.flatMapLatest { id ->
         if (id != null) flow { emit(repository.getFamilyById(id)) } else flowOf(null)
     }
     
-    val userFamilies: Flow<List<FamilyEntity>> = repository.getAllFamiliesForUser(currentUserId)
+    val userFamilies: Flow<List<FamilyEntity>> = authService.currentUser.flatMapLatest { user ->
+        repository.getAllFamiliesForUser(user?.id ?: "local_user_1")
+    }
     
     @OptIn(ExperimentalCoroutinesApi::class)
     val familyMembers: Flow<List<FamilyMemberEntity>> = _activeFamilyId.flatMapLatest { id ->
@@ -276,6 +284,15 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
 
 
     val currentUser = authService.currentUser
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val localUserProfile: StateFlow<UserProfileEntity?> = authService.currentUser.flatMapLatest { user ->
+        if (user != null) {
+            userProfileRepository.getProfileFlow(user.id)
+        } else {
+            flowOf(null)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
 
     fun signIn(email: String, pass: String, onResult: (Boolean) -> Unit) {
         viewModelScope.launch {
@@ -500,6 +517,16 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             _voiceProcessing.value = true
             val parsed = GeminiAiService.parseVoiceCommand(promptText)
+            _parsedVoice.value = parsed
+            _voiceProcessing.value = false
+        }
+    }
+
+    
+    fun processAudioPrompt(audioBase64: String) {
+        viewModelScope.launch {
+            _voiceProcessing.value = true
+            val parsed = GeminiAiService.parseAudioCommand(audioBase64)
             _parsedVoice.value = parsed
             _voiceProcessing.value = false
         }
