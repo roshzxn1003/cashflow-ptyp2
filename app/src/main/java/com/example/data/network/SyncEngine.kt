@@ -68,6 +68,7 @@ class SyncEngine(
                     id = fam.id,
                     name = fam.name,
                     createdBy = fam.createdByUserId.ifBlank { userId },
+                    inviteCode = fam.id,
                     createdAt = Instant.ofEpochMilli(fam.createdAt).toString()
                 )
                 SupabaseClientConfig.supabase.postgrest["families"].upsert(dto)
