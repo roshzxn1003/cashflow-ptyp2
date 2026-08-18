@@ -85,10 +85,8 @@ fun VoiceAiModal(
 
     val languageOptions = remember {
         listOf(
-            VoiceLanguageOption("ta-IN", "ta-IN", "தமிழ்", "🇮🇳", "Pure Tamil"),
-            VoiceLanguageOption("tanglish", "en-IN", "Tanglish", "🌐", "Tamil + English"),
-            VoiceLanguageOption("en-IN", "en-IN", "English", "🇺🇸", "English"),
-            VoiceLanguageOption("hi-IN", "hi-IN", "हिंदी", "🇮🇳", "Hindi")
+            VoiceLanguageOption("ta-IN", "ta-IN", "தமிழ்", "🇮🇳", "Tamil"),
+            VoiceLanguageOption("en-IN", "en-IN", "English", "🇺🇸", "English")
         )
     }
 
@@ -227,7 +225,7 @@ fun VoiceAiModal(
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, sttLocale)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, sttLocale)
                 putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, true)
-                putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf("ta-IN", "en-IN", "en-US", "hi-IN"))
+                putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf("ta-IN", "en-IN", "en-US"))
                 
                 // Real-time audio capture settings
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
@@ -413,7 +411,7 @@ fun VoiceAiModal(
                                 color = SlateDarkTextPrimary
                             )
                             Text(
-                                text = "Tamil • Tanglish • English",
+                                text = "Tamil • English",
                                 fontSize = 11.sp,
                                 color = EmeraldDarkPrimary
                             )
@@ -437,27 +435,27 @@ fun VoiceAiModal(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // --- Language Switcher Row ---
+                // --- Language Switcher Row (50/50 Split: Tamil & English) ---
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(SlateDarkSurfaceVariant, RoundedCornerShape(12.dp))
                         .padding(4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     languageOptions.forEach { lang ->
                         val isSelected = selectedLanguageCode == lang.code
                         val isListening = isSelected && modalState == VoiceModalState.LISTENING
 
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RoundedCornerShape(10.dp),
                             color = if (isSelected) EmeraldDarkPrimary else Color.Transparent,
                             border = if (isListening) {
                                 androidx.compose.foundation.BorderStroke(1.5.dp, CyanDarkSecondary)
                             } else null,
                             modifier = Modifier
-                                .weight(1f)
-                                .height(34.dp)
+                                .weight(1f) // 50/50 Balanced Split
+                                .height(38.dp)
                                 .clickable {
                                     if (selectedLanguageCode != lang.code) {
                                         selectedLanguageCode = lang.code
@@ -467,9 +465,10 @@ fun VoiceAiModal(
                                         }
                                     }
                                 }
+                                .testTag("btn_lang_${lang.code}")
                         ) {
                             Row(
-                                modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),
+                                modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.Center
                             ) {
@@ -480,12 +479,12 @@ fun VoiceAiModal(
                                             .clip(CircleShape)
                                             .background(CyanDarkSecondary)
                                     )
-                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
                                 }
                                 Text(
                                     text = "${lang.flag} ${lang.label}",
-                                    fontSize = 11.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    fontSize = 13.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
                                     color = if (isSelected) Color.White else SlateDarkTextSecondary,
                                     maxLines = 1
                                 )
@@ -592,10 +591,8 @@ fun VoiceAiModal(
                                 VoiceModalState.LISTENING -> "Listening in ${languageOptions.find { it.code == selectedLanguageCode }?.label ?: "Tamil"}..."
                                 VoiceModalState.ERROR -> errorMessage ?: "Could not hear clearly, please try again."
                                 else -> when (selectedLanguageCode) {
-                                    "ta-IN" -> "Tap microphone to speak (எ.கா. \"10 தக்காளி\")"
-                                    "tanglish" -> "Tap microphone to speak (e.g. \"Innaiku movie ki 250\")"
-                                    "hi-IN" -> "Tap microphone to speak (e.g. \"500 petrol gpay\")"
-                                    else -> "Tap microphone to speak (e.g. \"Spent 250 on lunch\")"
+                                    "ta-IN" -> "Tap microphone to speak (எ.கா. \"10 தக்காளி\" அல்லது \"150 டீ\")"
+                                    else -> "Tap microphone to speak (e.g. \"Spent 250 on lunch via UPI\")"
                                 }
                             },
                             fontSize = 13.sp,
