@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.speech.tts.TextToSpeech
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -302,6 +303,44 @@ fun VoiceAiModal(
         }
     }
 
+    var tts by remember { mutableStateOf<TextToSpeech?>(null) }
+    var isTtsReady by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        tts = TextToSpeech(context) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                isTtsReady = true
+            }
+        }
+    }
+
+    fun speakAloud(text: String) {
+        val ttsEngine = tts ?: return
+        if (!isTtsReady) return
+        val targetLocale = if (selectedLanguageCode == "ta-IN") Locale("ta", "IN") else Locale.US
+        ttsEngine.language = targetLocale
+        ttsEngine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "ZENITH_VOICE_OUT")
+    }
+
+    fun readOutTransaction(title: String, amount: Double, type: TransactionType, paymentMethod: String) {
+        val isTamil = selectedLanguageCode == "ta-IN"
+        val amtInt = if (amount % 1.0 == 0.0) amount.toInt().toString() else String.format(Locale.US, "%.2f", amount)
+        val textToSpeak = if (isTamil) {
+            if (type == TransactionType.EXPENSE) {
+                "$title $amtInt ரூபாய் $paymentMethod மூலம் செலவு பதிவு செய்யப்பட்டது."
+            } else {
+                "$title $amtInt ரூபாய் வருமானம் பதிவு செய்யப்பட்டது."
+            }
+        } else {
+            if (type == TransactionType.EXPENSE) {
+                "Added $title for $amtInt rupees via $paymentMethod."
+            } else {
+                "Recorded $title income of $amtInt rupees via $paymentMethod."
+            }
+        }
+        speakAloud(textToSpeak)
+    }
+
     LaunchedEffect(parsedExpense) {
         if (parsedExpense != null) {
             editTitle = parsedExpense.title
@@ -313,12 +352,21 @@ fun VoiceAiModal(
             editCategory = parsedExpense.category
             editPaymentMethod = parsedExpense.paymentMethod
             modalState = VoiceModalState.RESULT
+
+            // Automatically Read Aloud the parsed transaction result
+            readOutTransaction(parsedExpense.title, parsedExpense.amount, parsedExpense.type, parsedExpense.paymentMethod)
         }
     }
 
     DisposableEffect(Unit) {
         onDispose {
             stopListeningSafely()
+            try {
+                tts?.stop()
+                tts?.shutdown()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 
@@ -957,6 +1005,28 @@ fun VoiceAiModal(
                                     onMethodSelected = { editPaymentMethod = it },
                                     modifier = Modifier.fillMaxWidth()
                                 )
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                // --- Read Aloud Speaker Button ---
+                                OutlinedButton(
+                                    onClick = {
+                                        val amt = editAmount.toDoubleOrNull() ?: 0.0
+                                        readOutTransaction(editTitle, amt, editType, editPaymentMethod)
+                                    },
+                                    modifier = Modifier.fillMaxWidth().height(40.dp),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = CyanDarkSecondary),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(Icons.Default.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (selectedLanguageCode == "ta-IN") "🔊 உரக்கக் கேட்கவும் (Read Aloud)" else "🔊 Read Aloud Summary",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
                         }
 
