@@ -750,32 +750,72 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
                 return@launch
             }
             var family = repository.getFamilyById(cleanCode)
-            if (family == null) {
-                // If not found locally, attempt a sync pass to fetch from cloud
-                try {
-                    syncEngine.syncAll()
-                    family = repository.getFamilyById(cleanCode)
-                } catch (e: Exception) {
-                    // Fallback to local linking
+
+            // 1. Fetch remote family and transactions from Supabase
+            val (remoteFamily, remoteTxs) = withContext(Dispatchers.IO) {
+                syncEngine.fetchRemoteFamilyByInviteCode(cleanCode)
+            }
+
+            if (remoteFamily != null) {
+                val famEntity = FamilyEntity(
+                    id = remoteFamily.id,
+                    name = remoteFamily.name,
+                    createdByUserId = remoteFamily.createdBy,
+                    createdAt = System.currentTimeMillis(),
+                    serverId = remoteFamily.id,
+                    syncStatus = "SYNCED"
+                )
+                repository.insertFamily(famEntity)
+                family = famEntity
+
+                // Insert all downloaded family transactions
+                withContext(Dispatchers.IO) {
+                    for (tx in remoteTxs) {
+                        val existing = repository.getTransactionByServerId(tx.id)
+                        if (existing == null && !tx.isDeleted) {
+                            val txDateMillis = try {
+                                java.time.Instant.parse(tx.transactionDate).toEpochMilli()
+                            } catch (e: Exception) {
+                                System.currentTimeMillis()
+                            }
+                            repository.insertTransaction(
+                                TransactionEntity(
+                                    title = tx.description,
+                                    amount = tx.amount,
+                                    type = try { TransactionType.valueOf(tx.transactionType) } catch (e: Exception) { TransactionType.EXPENSE },
+                                    category = "General",
+                                    paymentMethod = tx.paymentMethod,
+                                    dateMillis = txDateMillis,
+                                    upiId = tx.upiId,
+                                    upiTransactionId = tx.upiTransactionId,
+                                    financeScope = FinanceScope.FAMILY,
+                                    familyId = remoteFamily.id,
+                                    createdByUserId = tx.userId,
+                                    serverId = tx.id,
+                                    syncStatus = "SYNCED"
+                                )
+                            )
+                        }
+                    }
                 }
-                if (family == null) {
-                    val newConnectedFamily = FamilyEntity(
-                        id = cleanCode,
-                        name = "Family Vault ($cleanCode)",
-                        createdByUserId = "family_owner",
-                        createdAt = System.currentTimeMillis()
-                    )
-                    repository.insertFamily(newConnectedFamily)
-                    family = newConnectedFamily
-                }
+            } else if (family == null) {
+                val newConnectedFamily = FamilyEntity(
+                    id = cleanCode,
+                    name = "Family Vault ($cleanCode)",
+                    createdByUserId = "family_owner",
+                    createdAt = System.currentTimeMillis()
+                )
+                repository.insertFamily(newConnectedFamily)
+                family = newConnectedFamily
             }
 
             if (family != null) {
-                val existing = repository.getMemberByFamilyAndUser(cleanCode, currentUserId)
+                val targetFamilyId = family.id
+                val existing = repository.getMemberByFamilyAndUser(targetFamilyId, currentUserId)
                 if (existing == null) {
                     val member = FamilyMemberEntity(
                         id = UUID.randomUUID().toString(),
-                        familyId = cleanCode,
+                        familyId = targetFamilyId,
                         userId = currentUserId,
                         name = currentUserName.ifBlank { "Family Member" },
                         role = FamilyRole.MEMBER,
@@ -783,12 +823,12 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
                     )
                     repository.insertMember(member)
                 }
-                setActiveFamily(cleanCode)
+                setActiveFamily(targetFamilyId)
                 setFinanceScope(FinanceScope.FAMILY)
                 // Trigger background synchronization immediately
                 viewModelScope.launch(Dispatchers.IO) {
                     try {
-                        syncEngine.syncAll()
+                        syncEngine.syncAll(currentUserId)
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
@@ -804,7 +844,7 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             val success = try {
                 withContext(Dispatchers.IO) {
-                    syncEngine.syncAll()
+                    syncEngine.syncAll(currentUserId)
                 }
             } catch (e: Exception) {
                 false

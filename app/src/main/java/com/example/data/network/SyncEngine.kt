@@ -21,33 +21,35 @@ class SyncEngine(
     private val isConfigured: Boolean
         get() = SupabaseClientConfig.isConfigured
 
-    suspend fun syncAll(): Boolean {
+    suspend fun syncAll(explicitUserId: String? = null): Boolean {
         if (!isConfigured) {
             Log.i("SyncEngine", "Supabase is not configured with remote credentials. Operating in Local-First Vault mode.")
             return true
         }
 
-        val user = authService.currentUser.value ?: return true
+        val resolvedUserId = authService.currentUser.value?.id 
+            ?: explicitUserId?.takeIf { it.isNotBlank() } 
+            ?: "zenith_member"
         
         return withContext(Dispatchers.IO) {
             try {
                 // 1. Synchronize Families & Membership
-                pushPendingFamilies(user.id)
-                pushPendingMembers(user.id)
-                pullRemoteFamilies(user.id)
-                pullRemoteMembers(user.id)
+                pushPendingFamilies(resolvedUserId)
+                pushPendingMembers(resolvedUserId)
+                pullRemoteFamilies(resolvedUserId)
+                pullRemoteMembers(resolvedUserId)
 
                 // 2. Synchronize Transactions (Personal + Shared Family Vaults)
-                pushPendingTransactions(user.id)
-                pullRemoteTransactions(user.id)
+                pushPendingTransactions(resolvedUserId)
+                pullRemoteTransactions(resolvedUserId)
 
                 // 3. Synchronize Budgets & Savings Goals
-                pushPendingBudgets(user.id)
-                pullRemoteBudgets(user.id)
-                pushPendingSavingsGoals(user.id)
-                pullRemoteSavingsGoals(user.id)
+                pushPendingBudgets(resolvedUserId)
+                pullRemoteBudgets(resolvedUserId)
+                pushPendingSavingsGoals(resolvedUserId)
+                pullRemoteSavingsGoals(resolvedUserId)
 
-                Log.i("SyncEngine", "Full bidirectional sync completed successfully.")
+                Log.i("SyncEngine", "Full bidirectional sync completed successfully for user: $resolvedUserId")
                 true
             } catch (e: Exception) {
                 Log.e("SyncEngine", "Error during cloud sync execution", e)
@@ -56,8 +58,34 @@ class SyncEngine(
         }
     }
 
-    suspend fun syncTransactions() {
-        syncAll()
+    suspend fun fetchRemoteFamilyByInviteCode(inviteCode: String): Pair<FamilyDto?, List<TransactionDto>> {
+        if (!isConfigured) return Pair(null, emptyList())
+        return withContext(Dispatchers.IO) {
+            try {
+                val clean = inviteCode.trim()
+                val allFamilies = SupabaseClientConfig.supabase.postgrest["families"]
+                    .select(columns = Columns.ALL)
+                    .decodeList<FamilyDto>()
+                
+                val matched = allFamilies.find { fam ->
+                    fam.inviteCode.equals(clean, ignoreCase = true) || fam.id.equals(clean, ignoreCase = true)
+                } ?: return@withContext Pair(null, emptyList())
+
+                val txs = SupabaseClientConfig.supabase.postgrest["transactions"]
+                    .select(columns = Columns.ALL)
+                    .decodeList<TransactionDto>()
+                    .filter { it.familyId == matched.id }
+
+                Pair(matched, txs)
+            } catch (e: Exception) {
+                Log.e("SyncEngine", "Failed to fetch remote family for code $inviteCode", e)
+                Pair(null, emptyList())
+            }
+        }
+    }
+
+    suspend fun syncTransactions(explicitUserId: String? = null) {
+        syncAll(explicitUserId)
     }
 
     private suspend fun pushPendingFamilies(userId: String) {

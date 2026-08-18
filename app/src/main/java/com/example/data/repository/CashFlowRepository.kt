@@ -88,6 +88,14 @@ class CashFlowRepository(
         return transactionDao.insertTransaction(transaction)
     }
 
+    suspend fun insertTransaction(transaction: TransactionEntity): Long {
+        return transactionDao.insertTransaction(transaction)
+    }
+
+    suspend fun getTransactionByServerId(serverId: String): TransactionEntity? {
+        return transactionDao.getTransactionByServerId(serverId)
+    }
+
     suspend fun updateTransaction(transaction: TransactionEntity) {
         transactionDao.updateTransaction(transaction.copy(syncStatus = "PENDING_UPDATE", updatedAt = System.currentTimeMillis()))
     }
