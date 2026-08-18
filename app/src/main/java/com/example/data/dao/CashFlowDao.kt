@@ -79,41 +79,77 @@ interface CategoryDao {
 
 @Dao
 interface BudgetDao {
-    @Query("SELECT * FROM budgets ORDER BY id DESC")
+    @Query("SELECT * FROM budgets WHERE isDeleted = 0 ORDER BY id DESC")
     fun getAllBudgets(): Flow<List<BudgetEntity>>
 
-    @Query("SELECT * FROM budgets WHERE financeScope = :scope ORDER BY id DESC")
+    @Query("SELECT * FROM budgets WHERE financeScope = :scope AND isDeleted = 0 ORDER BY id DESC")
     fun getBudgetsByScope(scope: FinanceScope): Flow<List<BudgetEntity>>
 
-    @Query("SELECT * FROM budgets WHERE familyId = :familyId ORDER BY id DESC")
+    @Query("SELECT * FROM budgets WHERE familyId = :familyId AND isDeleted = 0 ORDER BY id DESC")
     fun getBudgetsByFamilyId(familyId: String): Flow<List<BudgetEntity>>
 
-    @Query("SELECT * FROM budgets WHERE monthYear = :monthYear")
+    @Query("SELECT * FROM budgets WHERE monthYear = :monthYear AND isDeleted = 0")
     fun getBudgetsForMonth(monthYear: String): Flow<List<BudgetEntity>>
+
+    @Query("SELECT * FROM budgets WHERE syncStatus = 'PENDING_CREATE' AND isDeleted = 0")
+    suspend fun getPendingCreates(): List<BudgetEntity>
+
+    @Query("SELECT * FROM budgets WHERE syncStatus = 'PENDING_UPDATE' AND isDeleted = 0")
+    suspend fun getPendingUpdates(): List<BudgetEntity>
+
+    @Query("SELECT * FROM budgets WHERE syncStatus = 'PENDING_DELETE' OR isDeleted = 1")
+    suspend fun getPendingDeletes(): List<BudgetEntity>
+
+    @Query("SELECT * FROM budgets WHERE serverId = :serverId LIMIT 1")
+    suspend fun getBudgetByServerId(serverId: String): BudgetEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrUpdateBudget(budget: BudgetEntity): Long
 
+    @Update
+    suspend fun updateBudget(budget: BudgetEntity)
+
     @Delete
     suspend fun deleteBudget(budget: BudgetEntity)
+
+    @Query("DELETE FROM budgets WHERE id = :id")
+    suspend fun deleteBudgetById(id: Long)
 }
 
 @Dao
 interface SavingsGoalDao {
-    @Query("SELECT * FROM savings_goals ORDER BY targetDateMillis ASC")
+    @Query("SELECT * FROM savings_goals WHERE isDeleted = 0 ORDER BY targetDateMillis ASC")
     fun getAllGoals(): Flow<List<SavingsGoalEntity>>
 
-    @Query("SELECT * FROM savings_goals WHERE financeScope = :scope ORDER BY targetDateMillis ASC")
+    @Query("SELECT * FROM savings_goals WHERE financeScope = :scope AND isDeleted = 0 ORDER BY targetDateMillis ASC")
     fun getGoalsByScope(scope: FinanceScope): Flow<List<SavingsGoalEntity>>
 
-    @Query("SELECT * FROM savings_goals WHERE familyId = :familyId ORDER BY targetDateMillis ASC")
+    @Query("SELECT * FROM savings_goals WHERE familyId = :familyId AND isDeleted = 0 ORDER BY targetDateMillis ASC")
     fun getGoalsByFamilyId(familyId: String): Flow<List<SavingsGoalEntity>>
+
+    @Query("SELECT * FROM savings_goals WHERE syncStatus = 'PENDING_CREATE' AND isDeleted = 0")
+    suspend fun getPendingCreates(): List<SavingsGoalEntity>
+
+    @Query("SELECT * FROM savings_goals WHERE syncStatus = 'PENDING_UPDATE' AND isDeleted = 0")
+    suspend fun getPendingUpdates(): List<SavingsGoalEntity>
+
+    @Query("SELECT * FROM savings_goals WHERE syncStatus = 'PENDING_DELETE' OR isDeleted = 1")
+    suspend fun getPendingDeletes(): List<SavingsGoalEntity>
+
+    @Query("SELECT * FROM savings_goals WHERE serverId = :serverId LIMIT 1")
+    suspend fun getGoalByServerId(serverId: String): SavingsGoalEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrUpdateGoal(goal: SavingsGoalEntity): Long
 
+    @Update
+    suspend fun updateGoal(goal: SavingsGoalEntity)
+
     @Delete
     suspend fun deleteGoal(goal: SavingsGoalEntity)
+
+    @Query("DELETE FROM savings_goals WHERE id = :id")
+    suspend fun deleteGoalById(id: Long)
 }
 
 @Dao
@@ -127,3 +163,49 @@ interface ScannedItemDao {
     @Delete
     suspend fun deleteScannedItem(item: ScannedItemEntity)
 }
+
+@Dao
+interface ReceiptDao {
+    @Query("SELECT * FROM receipts WHERE transactionId = :transactionId LIMIT 1")
+    fun getReceiptForTransaction(transactionId: Long): Flow<ReceiptEntity?>
+
+    @Query("SELECT * FROM receipts WHERE transactionId = :transactionId LIMIT 1")
+    suspend fun getReceiptByTransactionIdDirect(transactionId: Long): ReceiptEntity?
+
+    @Query("SELECT * FROM receipt_items WHERE receiptId = :receiptId")
+    fun getItemsForReceipt(receiptId: Long): Flow<List<ReceiptItemEntity>>
+
+    @Query("SELECT * FROM receipt_items WHERE transactionId = :transactionId")
+    fun getItemsForTransaction(transactionId: Long): Flow<List<ReceiptItemEntity>>
+
+    @Query("SELECT * FROM receipt_items WHERE transactionId = :transactionId")
+    suspend fun getItemsForTransactionDirect(transactionId: Long): List<ReceiptItemEntity>
+
+    @Query("SELECT * FROM receipts")
+    fun getAllReceipts(): Flow<List<ReceiptEntity>>
+
+    @Query("SELECT * FROM receipt_items")
+    fun getAllReceiptItems(): Flow<List<ReceiptItemEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertReceipt(receipt: ReceiptEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertReceiptItems(items: List<ReceiptItemEntity>)
+
+    @Update
+    suspend fun updateReceipt(receipt: ReceiptEntity)
+
+    @Query("DELETE FROM receipt_items WHERE transactionId = :transactionId")
+    suspend fun deleteReceiptItemsByTransactionId(transactionId: Long)
+
+    @Query("DELETE FROM receipts WHERE transactionId = :transactionId")
+    suspend fun deleteReceiptByTransactionId(transactionId: Long)
+
+    @Query("DELETE FROM receipts")
+    suspend fun deleteAllReceipts()
+
+    @Query("DELETE FROM receipt_items")
+    suspend fun deleteAllReceiptItems()
+}
+

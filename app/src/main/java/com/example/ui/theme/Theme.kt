@@ -9,49 +9,38 @@ import androidx.compose.runtime.Composable
 private val DarkColorScheme =
     darkColorScheme(
         primary = EmeraldDarkPrimary,
-        onPrimary = SlateDarkBackground,
-        primaryContainer = EmeraldDarkContainer,
-        onPrimaryContainer = EmeraldContainer,
-        secondary = GoldAccent,
-        background = SlateDarkBackground,
-        surface = SlateDarkSurface,
-        onBackground = SlateDarkTextPrimary,
-        onSurface = SlateDarkTextPrimary,
-        onSurfaceVariant = SlateDarkTextSecondary
-    )
-
-private val LightColorScheme =
-    lightColorScheme(
-        primary = EmeraldPrimary,
         onPrimary = EmeraldOnPrimary,
-        primaryContainer = EmeraldContainer,
+        primaryContainer = EmeraldDarkContainer,
         onPrimaryContainer = EmeraldOnContainer,
         secondary = GoldAccent,
         secondaryContainer = GoldContainer,
         onSecondaryContainer = GoldOnContainer,
-        background = SlateBackground,
-        surface = SlateSurface,
-        onBackground = SlateTextPrimary,
-        onSurface = SlateTextPrimary,
-        onSurfaceVariant = SlateTextSecondary
+        background = SlateDarkBackground,
+        surface = SlateDarkSurface,
+        surfaceVariant = SlateDarkSurfaceVariant,
+        onBackground = SlateDarkTextPrimary,
+        onSurface = SlateDarkTextPrimary,
+        onSurfaceVariant = SlateDarkTextSecondary,
+        outline = SlateDarkBorder
     )
+
+private val LightColorScheme = DarkColorScheme // Modern finance dark mode default
 
 @Composable
 fun CashFlowTheme(
-    darkTheme: Boolean = true, // Force Dark Mode
+    darkTheme: Boolean = true, // Force Dark Mode for sleek modern finance feel
     content: @Composable () -> Unit,
 ) {
-    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
-
-    MaterialTheme(colorScheme = colorScheme, typography = Typography, content = content)
+    MaterialTheme(colorScheme = DarkColorScheme, typography = Typography, content = content)
 }
 
 @Composable
 fun MyApplicationTheme(
-    darkTheme: Boolean = true, // Force Dark Mode
+    darkTheme: Boolean = true,
     dynamicColor: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     CashFlowTheme(darkTheme = darkTheme, content = content)
 }
+
 

@@ -73,15 +73,15 @@ googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.W
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.
 dependencies {
-  implementation(libs.kotlinx.serialization.json)
+  implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
-  implementation(libs.supabase.postgrest)
-  implementation(libs.supabase.auth)
-  implementation(libs.supabase.realtime)
-  implementation(libs.ktor.client.android)
-  implementation(libs.ktor.client.core)
-  implementation(libs.ktor.client.content.negotiation)
-  implementation(libs.ktor.serialization.kotlinx.json)
+  implementation("io.github.jan-tennert.supabase:postgrest-kt:3.0.1")
+  implementation("io.github.jan-tennert.supabase:auth-kt:3.0.1")
+  implementation("io.github.jan-tennert.supabase:realtime-kt:3.0.1")
+  implementation("io.ktor:ktor-client-android:3.0.0")
+  implementation("io.ktor:ktor-client-core:3.0.0")
+  implementation("io.ktor:ktor-client-content-negotiation:3.0.0")
+  implementation("io.ktor:ktor-serialization-kotlinx-json:3.0.0")
 
 
   implementation(platform(libs.androidx.compose.bom))
@@ -92,9 +92,10 @@ dependencies {
   implementation(libs.androidx.camera.core)
   implementation(libs.androidx.camera.lifecycle)
   implementation(libs.androidx.camera.view)
-  implementation(libs.play.services.code.scanner)
-  implementation(libs.mlkit.barcode)
-  implementation(libs.mlkit.text)
+  implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
+  implementation("com.google.mlkit:barcode-scanning:17.3.0")
+  implementation("com.google.mlkit:text-recognition:16.0.1")
+
   implementation(libs.androidx.compose.material.icons.core)
   implementation(libs.androidx.compose.material.icons.extended)
   implementation(libs.androidx.compose.material3)

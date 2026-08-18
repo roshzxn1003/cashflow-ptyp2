@@ -56,6 +56,8 @@ data class TransactionDto(
     @SerialName("category_id") val categoryId: String? = null,
     val description: String,
     @SerialName("payment_method") val paymentMethod: String,
+    @SerialName("upi_id") val upiId: String? = null,
+    @SerialName("upi_transaction_id") val upiTransactionId: String? = null,
     @SerialName("transaction_date") val transactionDate: String,
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("updated_at") val updatedAt: String? = null,

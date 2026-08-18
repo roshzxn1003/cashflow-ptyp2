@@ -13,6 +13,24 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 
+val MIGRATION_7_8 = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `transactions` ADD COLUMN `upiId` TEXT")
+        db.execSQL("ALTER TABLE `transactions` ADD COLUMN `upiTransactionId` TEXT")
+    }
+}
+
+val MIGRATION_6_7 = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `receipts` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `transactionId` INTEGER NOT NULL, `merchantName` TEXT NOT NULL, `receiptNumber` TEXT, `receiptDate` TEXT NOT NULL, `receiptTime` TEXT, `subtotal` REAL NOT NULL, `discount` REAL NOT NULL, `tax` REAL NOT NULL, `total` REAL NOT NULL, `currency` TEXT NOT NULL, `paymentMethod` TEXT NOT NULL, `imageUri` TEXT, `rawText` TEXT, `createdAt` INTEGER NOT NULL)"
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `receipt_items` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `receiptId` INTEGER NOT NULL, `transactionId` INTEGER NOT NULL, `name` TEXT NOT NULL, `quantity` REAL NOT NULL, `unitPrice` REAL NOT NULL, `totalPrice` REAL NOT NULL)"
+        )
+    }
+}
+
 val MIGRATION_5_6 = object : Migration(5, 6) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL(
@@ -68,9 +86,11 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
         ScannedItemEntity::class,
         FamilyEntity::class,
         FamilyMemberEntity::class,
-        UserProfileEntity::class
+        UserProfileEntity::class,
+        ReceiptEntity::class,
+        ReceiptItemEntity::class
     ],
-    version = 6,
+    version = 8,
     exportSchema = false
 )
 abstract class CashFlowDatabase : RoomDatabase() {
@@ -82,6 +102,7 @@ abstract class CashFlowDatabase : RoomDatabase() {
     abstract fun familyDao(): FamilyDao
     abstract fun familyMemberDao(): FamilyMemberDao
     abstract fun userProfileDao(): UserProfileDao
+    abstract fun receiptDao(): ReceiptDao
 
     companion object {
         @Volatile
@@ -94,7 +115,8 @@ abstract class CashFlowDatabase : RoomDatabase() {
                     CashFlowDatabase::class.java,
                     "cashflow_database"
                 )
-                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                    .fallbackToDestructiveMigration(true)
                     .addCallback(DatabaseCallback(context.applicationContext))
                     .build()
                 INSTANCE = instance

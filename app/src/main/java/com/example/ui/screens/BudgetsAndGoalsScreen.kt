@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -24,9 +25,8 @@ import androidx.compose.ui.window.Dialog
 import com.example.data.models.BudgetEntity
 import com.example.data.models.SavingsGoalEntity
 import com.example.data.models.TransactionType
-import com.example.ui.theme.ExpenseRed
-import com.example.ui.theme.GoldAccent
-import com.example.ui.theme.IncomeGreen
+import com.example.ui.components.GlassCard
+import com.example.ui.theme.*
 import com.example.ui.viewmodel.CashFlowUiState
 import java.util.*
 
@@ -48,7 +48,7 @@ fun BudgetsAndGoalsScreen(
     var goalToDelete by remember { mutableStateOf<SavingsGoalEntity?>(null) }
     var selectedGoalForDeposit by remember { mutableStateOf<SavingsGoalEntity?>(null) }
 
-    var selectedPeriodFilter by remember { mutableStateOf("ALL") } // ALL, MONTHLY, WEEKLY, CUSTOM
+    var selectedPeriodFilter by remember { mutableStateOf("ALL") }
 
     val filteredBudgets = remember(state.budgets, selectedPeriodFilter) {
         when (selectedPeriodFilter) {
@@ -70,184 +70,175 @@ fun BudgetsAndGoalsScreen(
                 when (budget.periodType) {
                     "MONTHLY" -> sdfMonth.format(date) == budget.monthYear
                     "YEARLY" -> sdfYear.format(date) == budget.monthYear.substring(0, 4)
-                    else -> true // Treat custom/weekly as all-time for simplicity in this prototype
+                    else -> true
                 }
             }
             .sumOf { it.amount }
     }
 
-    // Calculated totals for budgets
     val totalBudgeted = remember(filteredBudgets) { filteredBudgets.sumOf { it.monthlyLimit } }
     val totalSpentOnBudgets = remember(filteredBudgets, state.transactions) {
-        filteredBudgets.sumOf { budget ->
-            calculateSpent(budget, state.transactions)
-        }
+        filteredBudgets.sumOf { budget -> calculateSpent(budget, state.transactions) }
     }
     val totalRemaining = totalBudgeted - totalSpentOnBudgets
     val overallProgress = if (totalBudgeted > 0) (totalSpentOnBudgets / totalBudgeted).toFloat().coerceIn(0f, 1f) else 0f
     val overbudgetCount = remember(filteredBudgets, state.transactions) {
-        filteredBudgets.count { budget ->
-            val spent = calculateSpent(budget, state.transactions)
-            spent > budget.monthlyLimit
-        }
+        filteredBudgets.count { budget -> calculateSpent(budget, state.transactions) > budget.monthlyLimit }
     }
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(top = 16.dp, bottom = 90.dp)
+        contentPadding = PaddingValues(top = 16.dp, bottom = 140.dp)
     ) {
-        // --- OVERVIEW SUMMARY CARD ---
+        // --- 1. BUDGET HEALTH OVERVIEW GLASS CARD ---
         item {
-            Card(
-                shape = RoundedCornerShape(24.dp),
+            GlassCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 20.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                backgroundColor = GlassCardBg
             ) {
-                Column(modifier = Modifier.padding(20.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                text = "Budget Health Overview",
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                            Text(
-                                text = "Tracking ${state.budgets.size} active spending limits",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                            )
-                        }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f, fill = false)) {
+                        Text(
+                            text = "Budget Health",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = SlateDarkTextPrimary
+                        )
+                        Text(
+                            text = "Tracking ${state.budgets.size} active spending limits",
+                            fontSize = 12.sp,
+                            color = SlateDarkTextSecondary
+                        )
+                    }
 
-                        AnimatedVisibility(visible = overbudgetCount > 0) {
-                            Surface(
-                                color = ExpenseRed,
-                                shape = RoundedCornerShape(12.dp)
+                    AnimatedVisibility(visible = overbudgetCount > 0) {
+                        Surface(
+                            color = ExpenseRed,
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        Icons.Default.Warning,
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = "$overbudgetCount Over",
-                                        color = Color.White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
+                                Icon(
+                                    Icons.Default.Warning,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "$overbudgetCount Over",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
                     }
+                }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column {
-                            Text(
-                                text = "Total Spent",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                            )
-                            Text(
-                                text = "${state.currencySymbol}${String.format(Locale.US, "%.2f", totalSpentOnBudgets)}",
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (totalSpentOnBudgets > totalBudgeted && totalBudgeted > 0) ExpenseRed else MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        }
-
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(
-                                text = "Total Budgeted",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                            )
-                            Text(
-                                text = "${state.currencySymbol}${String.format(Locale.US, "%.2f", totalBudgeted)}",
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text(
+                            text = "Total Spent",
+                            fontSize = 11.sp,
+                            color = SlateDarkTextSecondary
+                        )
+                        Text(
+                            text = "${state.currencySymbol}${String.format(Locale.US, "%,.2f", totalSpentOnBudgets)}",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (totalSpentOnBudgets > totalBudgeted && totalBudgeted > 0) ExpenseRed else SlateDarkTextPrimary
+                        )
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            text = "Total Budgeted",
+                            fontSize = 11.sp,
+                            color = SlateDarkTextSecondary
+                        )
+                        Text(
+                            text = "${state.currencySymbol}${String.format(Locale.US, "%,.2f", totalBudgeted)}",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = SlateDarkTextPrimary
+                        )
+                    }
+                }
 
-                    LinearProgressIndicator(
-                        progress = { overallProgress },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(10.dp)
-                            .clip(CircleShape),
-                        color = when {
-                            overallProgress >= 1.0f -> ExpenseRed
-                            overallProgress >= 0.8f -> GoldAccent
-                            else -> IncomeGreen
-                        },
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                Spacer(modifier = Modifier.height(12.dp))
+
+                LinearProgressIndicator(
+                    progress = { overallProgress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(10.dp)
+                        .clip(CircleShape),
+                    color = when {
+                        overallProgress >= 1.0f -> ExpenseRed
+                        overallProgress >= 0.8f -> GoalAmber
+                        else -> IncomeGreen
+                    },
+                    trackColor = SlateDarkSurfaceVariant
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = if (totalRemaining >= 0) "Remaining: ${state.currencySymbol}${String.format(Locale.US, "%,.2f", totalRemaining)}"
+                        else "Over budget by ${state.currencySymbol}${String.format(Locale.US, "%,.2f", -totalRemaining)}",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (totalRemaining < 0) ExpenseRed else IncomeGreen
                     )
 
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = if (totalRemaining >= 0) "Remaining: ${state.currencySymbol}${String.format(Locale.US, "%.2f", totalRemaining)}"
-                            else "Over budget by ${state.currencySymbol}${String.format(Locale.US, "%.2f", -totalRemaining)}",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (totalRemaining < 0) ExpenseRed else IncomeGreen
-                        )
-
-                        Text(
-                            text = "${(overallProgress * 100).toInt()}% Used",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
+                    Text(
+                        text = "${(overallProgress * 100).toInt()}% Used",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = SlateDarkTextPrimary
+                    )
                 }
             }
         }
 
-        // --- SECTION 1: BUDGETS HEADER & PERIOD FILTERS ---
+        // --- 2. CATEGORY BUDGETS HEADER ---
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f, fill = false)) {
                     Text(
                         text = "Category Budgets",
-                        fontSize = 22.sp,
+                        fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = SlateDarkTextPrimary
                     )
                     Text(
                         text = "Set spending limits for monthly or custom periods",
                         fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = SlateDarkTextSecondary
                     )
                 }
 
@@ -256,77 +247,86 @@ fun BudgetsAndGoalsScreen(
                         editingBudget = null
                         showAddBudgetModal = true
                     },
-                    modifier = Modifier.testTag("add_budget_btn"),
-                    shape = RoundedCornerShape(12.dp)
+                    modifier = Modifier
+                        .height(42.dp)
+                        .testTag("add_budget_btn"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldDarkPrimary)
                 ) {
                     Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("New Budget", fontSize = 12.sp)
+                    Text("New Budget", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Period Filter Chips
-            Row(
+            // Horizontally Scrollable Period Filter Chips
+            LazyRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                FilterChip(
-                    selected = selectedPeriodFilter == "ALL",
-                    onClick = { selectedPeriodFilter = "ALL" },
-                    label = { Text("All (${state.budgets.size})", fontSize = 12.sp) }
-                )
-                FilterChip(
-                    selected = selectedPeriodFilter == "MONTHLY",
-                    onClick = { selectedPeriodFilter = "MONTHLY" },
-                    label = { Text("Monthly", fontSize = 12.sp) }
-                )
-                FilterChip(
-                    selected = selectedPeriodFilter == "WEEKLY",
-                    onClick = { selectedPeriodFilter = "WEEKLY" },
-                    label = { Text("Weekly", fontSize = 12.sp) }
-                )
-                FilterChip(
-                    selected = selectedPeriodFilter == "CUSTOM",
-                    onClick = { selectedPeriodFilter = "CUSTOM" },
-                    label = { Text("Custom", fontSize = 12.sp) }
-                )
+                item {
+                    FilterChip(
+                        selected = selectedPeriodFilter == "ALL",
+                        onClick = { selectedPeriodFilter = "ALL" },
+                        label = { Text("All (${state.budgets.size})", fontSize = 12.sp) }
+                    )
+                }
+                item {
+                    FilterChip(
+                        selected = selectedPeriodFilter == "MONTHLY",
+                        onClick = { selectedPeriodFilter = "MONTHLY" },
+                        label = { Text("Monthly", fontSize = 12.sp) }
+                    )
+                }
+                item {
+                    FilterChip(
+                        selected = selectedPeriodFilter == "WEEKLY",
+                        onClick = { selectedPeriodFilter = "WEEKLY" },
+                        label = { Text("Weekly", fontSize = 12.sp) }
+                    )
+                }
+                item {
+                    FilterChip(
+                        selected = selectedPeriodFilter == "CUSTOM",
+                        onClick = { selectedPeriodFilter = "CUSTOM" },
+                        label = { Text("Custom", fontSize = 12.sp) }
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
         }
 
+        // --- 3. BUDGET ITEMS LIST ---
         if (filteredBudgets.isEmpty()) {
             item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                GlassCard(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                    backgroundColor = GlassCardBg
                 ) {
                     Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(24.dp),
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Icon(
                             Icons.Default.PieChart,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(40.dp)
+                            tint = SlateDarkTextMuted,
+                            modifier = Modifier.size(36.dp)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "No budgets found",
+                            text = "No budgets yet",
                             fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp
+                            fontSize = 15.sp,
+                            color = SlateDarkTextPrimary
                         )
                         Text(
-                            text = "Tap 'New Budget' to set limits and control your expenses!",
+                            text = "Set your first spending limit to start controlling expenses.",
                             fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = SlateDarkTextSecondary,
                             modifier = Modifier.padding(top = 4.dp)
                         )
                     }
@@ -341,178 +341,202 @@ fun BudgetsAndGoalsScreen(
                 val remaining = budget.monthlyLimit - categorySpent
                 val progress = if (budget.monthlyLimit > 0) (categorySpent / budget.monthlyLimit).toFloat().coerceIn(0f, 1f) else 0f
                 val isOver = categorySpent > budget.monthlyLimit
-                val percentInt = (progress * 100).toInt()
+                val isNearLimit = progress >= 0.8f && !isOver
 
                 val periodLabel = when (budget.periodType) {
-                    "WEEKLY" -> "Weekly Budget"
-                    "YEARLY" -> "Yearly Budget"
-                    "CUSTOM" -> if (budget.customPeriodName.isNotBlank()) budget.customPeriodName else "Custom Period"
-                    else -> "Monthly Budget (${budget.monthYear})"
+                    "WEEKLY" -> "Weekly"
+                    "YEARLY" -> "Yearly"
+                    "CUSTOM" -> if (budget.customPeriodName.isNotBlank()) budget.customPeriodName else "Custom"
+                    else -> "Monthly"
                 }
 
-                Card(
-                    shape = RoundedCornerShape(18.dp),
+                GlassCard(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 6.dp)
+                        .padding(vertical = 5.dp)
                         .animateItem(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (isOver) ExpenseRed.copy(alpha = 0.05f) else MaterialTheme.colorScheme.surface
-                    )
+                    backgroundColor = if (isOver) ExpenseRed.copy(alpha = 0.05f) else GlassCardBg
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = budget.categoryName,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = SlateDarkTextPrimary,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    color = SlateDarkSurfaceVariant,
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
                                     Text(
-                                        text = budget.categoryName,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Surface(
-                                        color = MaterialTheme.colorScheme.surfaceVariant,
-                                        shape = RoundedCornerShape(6.dp)
-                                    ) {
-                                        Text(
-                                            text = periodLabel,
-                                            fontSize = 10.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(4.dp))
-
-                                if (isOver) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            Icons.Default.Warning,
-                                            contentDescription = null,
-                                            tint = ExpenseRed,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = "Over budget by ${state.currencySymbol}${String.format(Locale.US, "%.2f", categorySpent - budget.monthlyLimit)}!",
-                                            fontSize = 12.sp,
-                                            color = ExpenseRed,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                } else {
-                                    Text(
-                                        text = "${state.currencySymbol}${String.format(Locale.US, "%.2f", remaining)} left of ${state.currencySymbol}${String.format(Locale.US, "%.2f", budget.monthlyLimit)} limit",
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        text = periodLabel,
+                                        fontSize = 10.sp,
+                                        color = SlateDarkTextSecondary,
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                                        maxLines = 1
                                     )
                                 }
-                            }
 
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(
-                                    onClick = {
-                                        editingBudget = budget
-                                        showAddBudgetModal = true
+                                Spacer(modifier = Modifier.width(4.dp))
+
+                                // Status Badge
+                                Surface(
+                                    color = when {
+                                        isOver -> ExpenseRed.copy(alpha = 0.15f)
+                                        isNearLimit -> GoalAmber.copy(alpha = 0.15f)
+                                        else -> IncomeGreen.copy(alpha = 0.15f)
                                     },
-                                    modifier = Modifier.size(32.dp)
+                                    shape = RoundedCornerShape(6.dp)
                                 ) {
-                                    Icon(
-                                        Icons.Default.Edit,
-                                        contentDescription = "Edit Budget",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-
-                                IconButton(
-                                    onClick = { budgetToDelete = budget },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.Delete,
-                                        contentDescription = "Delete Budget",
-                                        tint = ExpenseRed,
-                                        modifier = Modifier.size(18.dp)
+                                    Text(
+                                        text = when {
+                                            isOver -> "Over Budget"
+                                            isNearLimit -> "Near Limit"
+                                            else -> "Healthy"
+                                        },
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = when {
+                                            isOver -> ExpenseRed
+                                            isNearLimit -> GoalAmber
+                                            else -> IncomeGreen
+                                        },
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                                        maxLines = 1
                                     )
                                 }
                             }
-                        }
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            if (isOver) {
+                                Text(
+                                    text = "Over limit by ${state.currencySymbol}${String.format(Locale.US, "%.2f", categorySpent - budget.monthlyLimit)}!",
+                                    fontSize = 12.sp,
+                                    color = ExpenseRed,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                )
+                            } else {
+                                Text(
+                                    text = "${state.currencySymbol}${String.format(Locale.US, "%.2f", remaining)} left of ${state.currencySymbol}${String.format(Locale.US, "%.2f", budget.monthlyLimit)} limit",
+                                    fontSize = 12.sp,
+                                    color = SlateDarkTextSecondary,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                )
+                            }
+                        }
 
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(start = 4.dp)
                         ) {
-                            Text(
-                                text = "Spent: ${state.currencySymbol}${String.format(Locale.US, "%.2f", categorySpent)}",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = if (isOver) ExpenseRed else MaterialTheme.colorScheme.onSurface
-                            )
+                            IconButton(
+                                onClick = {
+                                    editingBudget = budget
+                                    showAddBudgetModal = true
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Edit,
+                                    contentDescription = "Edit",
+                                    tint = EmeraldDarkPrimary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
 
-                            Text(
-                                text = "$percentInt% used",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = when {
-                                    percentInt >= 100 -> ExpenseRed
-                                    percentInt >= 80 -> GoldAccent
-                                    else -> IncomeGreen
-                                }
-                            )
+                            IconButton(
+                                onClick = { budgetToDelete = budget },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = "Delete",
+                                    tint = ExpenseRed.copy(alpha = 0.7f),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
+                    }
 
-                        Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                        LinearProgressIndicator(
-                            progress = { progress },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(8.dp)
-                                .clip(CircleShape),
-                            color = when {
-                                progress >= 1.0f -> ExpenseRed
-                                progress >= 0.8f -> GoldAccent
-                                else -> IncomeGreen
-                            },
-                            trackColor = MaterialTheme.colorScheme.surfaceVariant
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Spent: ${state.currencySymbol}${String.format(Locale.US, "%.2f", categorySpent)}",
+                            fontSize = 12.sp,
+                            color = SlateDarkTextSecondary,
+                            maxLines = 1
+                        )
+                        Text(
+                            text = "${(progress * 100).toInt()}% Used",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isOver) ExpenseRed else EmeraldDarkPrimary,
+                            maxLines = 1
                         )
                     }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(CircleShape),
+                        color = if (isOver) ExpenseRed else EmeraldDarkPrimary,
+                        trackColor = SlateDarkSurfaceVariant
+                    )
                 }
             }
         }
 
         item {
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(24.dp))
         }
 
-        // --- SECTION 2: SAVINGS GOALS ---
+        // --- 4. SAVINGS GOALS SECTION ---
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f, fill = false)) {
                     Text(
                         text = "Savings Goals",
-                        fontSize = 22.sp,
+                        fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = SlateDarkTextPrimary,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "Track target funds and dream milestones",
+                        text = "Track your savings progress towards big purchases",
                         fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = SlateDarkTextSecondary,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                 }
 
@@ -521,31 +545,32 @@ fun BudgetsAndGoalsScreen(
                         editingGoal = null
                         showAddGoalModal = true
                     },
-                    modifier = Modifier.testTag("add_goal_btn"),
-                    shape = RoundedCornerShape(12.dp)
+                    modifier = Modifier
+                        .height(42.dp)
+                        .testTag("add_goal_btn"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldDarkPrimary)
                 ) {
                     Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("New Goal", fontSize = 12.sp)
+                    Text("New Goal", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
         }
 
         if (state.savingsGoals.isEmpty()) {
             item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                GlassCard(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                    backgroundColor = GlassCardBg
                 ) {
                     Text(
                         text = "No savings goals added yet. Click 'New Goal' to set target savings milestones!",
                         fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(16.dp)
+                        color = SlateDarkTextSecondary,
+                        modifier = Modifier.padding(14.dp)
                     )
                 }
             }
@@ -554,113 +579,118 @@ fun BudgetsAndGoalsScreen(
                 val progress = if (goal.targetAmount > 0) (goal.currentAmount / goal.targetAmount).toFloat().coerceIn(0f, 1f) else 0f
                 val percentInt = (progress * 100).toInt()
 
-                Card(
-                    shape = RoundedCornerShape(20.dp),
+                GlassCard(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 6.dp)
+                        .padding(vertical = 5.dp)
                         .animateItem(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    backgroundColor = GlassCardBg
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(42.dp)
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.primaryContainer),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        Icons.Default.Savings,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
-                                    Text(goal.title, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                                    Text(
-                                        "$percentInt% Achieved",
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(EmeraldDarkContainer),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.Savings,
+                                    contentDescription = null,
+                                    tint = EmeraldDarkPrimary,
+                                    modifier = Modifier.size(18.dp)
+                                )
                             }
-
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                OutlinedButton(
-                                    onClick = { selectedGoalForDeposit = goal },
-                                    shape = RoundedCornerShape(10.dp)
-                                ) {
-                                    Text("+ Deposit", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                }
-
-                                IconButton(
-                                    onClick = {
-                                        editingGoal = goal
-                                        showAddGoalModal = true
-                                    },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.Edit,
-                                        contentDescription = "Edit Goal",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-
-                                IconButton(
-                                    onClick = { goalToDelete = goal },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.Delete,
-                                        contentDescription = "Delete Goal",
-                                        tint = ExpenseRed,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f, fill = false)) {
+                                Text(
+                                    text = goal.title,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = SlateDarkTextPrimary,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "$percentInt% Achieved",
+                                    fontSize = 12.sp,
+                                    color = EmeraldDarkPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1
+                                )
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(12.dp))
-
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(start = 4.dp)
                         ) {
-                            Text(
-                                "Saved: ${state.currencySymbol}${String.format(Locale.US, "%.2f", goal.currentAmount)}",
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                "Target: ${state.currencySymbol}${String.format(Locale.US, "%.2f", goal.targetAmount)}",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            OutlinedButton(
+                                onClick = { selectedGoalForDeposit = goal },
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.height(34.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text("+ Deposit", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    editingGoal = goal
+                                    showAddGoalModal = true
+                                },
+                                modifier = Modifier.size(30.dp)
+                            ) {
+                                Icon(Icons.Default.Edit, contentDescription = "Edit", tint = EmeraldDarkPrimary, modifier = Modifier.size(15.dp))
+                            }
+
+                            IconButton(
+                                onClick = { goalToDelete = goal },
+                                modifier = Modifier.size(30.dp)
+                            ) {
+                                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = ExpenseRed.copy(alpha = 0.7f), modifier = Modifier.size(15.dp))
+                            }
                         }
+                    }
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                        LinearProgressIndicator(
-                            progress = { progress },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(10.dp)
-                                .clip(CircleShape),
-                            color = MaterialTheme.colorScheme.primary,
-                            trackColor = MaterialTheme.colorScheme.surfaceVariant
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            "Saved: ${state.currencySymbol}${String.format(Locale.US, "%,.2f", goal.currentAmount)}",
+                            fontSize = 12.sp,
+                            color = SlateDarkTextSecondary
+                        )
+                        Text(
+                            "Target: ${state.currencySymbol}${String.format(Locale.US, "%,.2f", goal.targetAmount)}",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = SlateDarkTextPrimary
                         )
                     }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(CircleShape),
+                        color = EmeraldDarkPrimary,
+                        trackColor = SlateDarkSurfaceVariant
+                    )
                 }
             }
         }
@@ -806,24 +836,25 @@ fun AddOrEditBudgetModal(
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surface,
-            modifier = Modifier.fillMaxWidth()
+            color = SlateDarkSurface,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderColor)
         ) {
             Column(modifier = Modifier.padding(24.dp)) {
                 Text(
                     text = if (existingBudget == null) "Create Budget Limit" else "Edit Budget Limit",
                     fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    color = SlateDarkTextPrimary
                 )
                 Text(
                     text = "Track and limit spending for a category",
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = SlateDarkTextSecondary
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Budget Limit Input
                 OutlinedTextField(
                     value = limitText,
                     onValueChange = { limitText = it },
@@ -836,8 +867,7 @@ fun AddOrEditBudgetModal(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Budgeting Period Type Selector
-                Text("Budgeting Period", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Text("Budgeting Period", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = SlateDarkTextPrimary)
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -865,8 +895,7 @@ fun AddOrEditBudgetModal(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Category Selection
-                Text("Select Category", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Text("Select Category", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = SlateDarkTextPrimary)
                 Spacer(modifier = Modifier.height(6.dp))
 
                 Column {
@@ -883,7 +912,7 @@ fun AddOrEditBudgetModal(
                                 onClick = { selectedCat = cat.name }
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text(cat.name, fontSize = 14.sp)
+                            Text(cat.name, fontSize = 14.sp, color = SlateDarkTextPrimary)
                         }
                     }
                 }
@@ -899,10 +928,12 @@ fun AddOrEditBudgetModal(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
+                        .height(48.dp)
                         .testTag("save_budget_modal_btn"),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldDarkPrimary)
                 ) {
-                    Text(if (existingBudget == null) "Save Budget" else "Update Budget", fontSize = 15.sp)
+                    Text(if (existingBudget == null) "Save Budget" else "Update Budget", fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -921,12 +952,18 @@ fun AddOrEditGoalModal(
     var currentText by remember { mutableStateOf(existingGoal?.currentAmount?.toString() ?: "0") }
 
     Dialog(onDismissRequest = onDismiss) {
-        Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = SlateDarkSurface,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderColor)
+        ) {
             Column(modifier = Modifier.padding(24.dp)) {
                 Text(
                     if (existingGoal == null) "Create Savings Goal" else "Edit Savings Goal",
                     fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    color = SlateDarkTextPrimary
                 )
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -972,10 +1009,12 @@ fun AddOrEditGoalModal(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
+                        .height(48.dp)
                         .testTag("save_goal_modal_btn"),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldDarkPrimary)
                 ) {
-                    Text(if (existingGoal == null) "Create Goal" else "Update Goal", fontSize = 15.sp)
+                    Text(if (existingGoal == null) "Create Goal" else "Update Goal", fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -992,13 +1031,18 @@ fun DepositGoalModal(
     var depositText by remember { mutableStateOf("") }
 
     Dialog(onDismissRequest = onDismiss) {
-        Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = SlateDarkSurface,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderColor)
+        ) {
             Column(modifier = Modifier.padding(24.dp)) {
-                Text("Deposit to ${goal.title}", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text("Deposit to ${goal.title}", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = SlateDarkTextPrimary)
                 Text(
-                    "Current Saved: $currencySymbol${String.format(Locale.US, "%.2f", goal.currentAmount)} / $currencySymbol${String.format(Locale.US, "%.2f", goal.targetAmount)}",
+                    "Current Saved: $currencySymbol${String.format(Locale.US, "%,.2f", goal.currentAmount)} / $currencySymbol${String.format(Locale.US, "%,.2f", goal.targetAmount)}",
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = SlateDarkTextSecondary
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -1022,10 +1066,12 @@ fun DepositGoalModal(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
+                        .height(48.dp)
                         .testTag("confirm_deposit_btn"),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldDarkPrimary)
                 ) {
-                    Text("Add Funds", fontSize = 15.sp)
+                    Text("Add Funds", fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }

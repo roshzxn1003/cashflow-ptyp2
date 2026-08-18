@@ -11,6 +11,8 @@ import com.example.data.models.*
 import com.example.data.repository.CashFlowRepository
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.UUID
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -30,6 +32,8 @@ data class CashFlowUiState(
     val isVoiceDialogShowing: Boolean = false,
     val isVoiceProcessing: Boolean = false,
     val parsedVoiceExpense: ParsedVoiceExpense? = null,
+    val isUpiDialogShowing: Boolean = false,
+    val isUpiScanDialogShowing: Boolean = false,
     val isReceiptDialogShowing: Boolean = false,
     val isReceiptProcessing: Boolean = false,
     val parsedReceipt: ParsedReceipt? = null,
@@ -37,7 +41,12 @@ data class CashFlowUiState(
     val isAiCoachLoading: Boolean = false,
     val selectedTab: Int = 0,
     val scannedBarcodeValue: String? = null,
-    val isScannedBarcodeSheetShowing: Boolean = false
+    val isScannedBarcodeSheetShowing: Boolean = false,
+    val hasCompletedOnboarding: Boolean = true,
+    val defaultPaymentMethod: String = "UPI",
+    val defaultTransactionType: TransactionType = TransactionType.EXPENSE,
+    val isHapticEnabled: Boolean = true,
+    val isNotificationEnabled: Boolean = true
 )
 
 class CashFlowViewModel(application: Application) : AndroidViewModel(application) {
@@ -54,6 +63,9 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
     private val _voiceDialogShowing = MutableStateFlow(false)
     private val _voiceProcessing = MutableStateFlow(false)
     private val _parsedVoice = MutableStateFlow<ParsedVoiceExpense?>(null)
+
+    private val _upiDialogShowing = MutableStateFlow(false)
+    private val _upiScanDialogShowing = MutableStateFlow(false)
 
     private val _receiptDialogShowing = MutableStateFlow(false)
     private val _receiptProcessing = MutableStateFlow(false)
@@ -78,12 +90,16 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
             database.savingsGoalDao(),
             database.scannedItemDao(),
             database.familyDao(),
-            database.familyMemberDao()
+            database.familyMemberDao(),
+            database.receiptDao()
         )
         syncEngine = com.example.data.network.SyncEngine(
-            database.transactionDao(),
-            database.familyDao(),
-            authService
+            transactionDao = database.transactionDao(),
+            familyDao = database.familyDao(),
+            authService = authService,
+            familyMemberDao = database.familyMemberDao(),
+            budgetDao = database.budgetDao(),
+            savingsGoalDao = database.savingsGoalDao()
         )
 
         userProfileRepository = com.example.data.repository.UserProfileRepository(database.userProfileDao())
@@ -93,7 +109,7 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
             authService.currentUser.collect { user ->
                 if (user != null) {
                     userProfileRepository.syncProfile(user.id)
-                    syncEngine.syncTransactions()
+                    syncEngine.syncAll()
                 }
             }
         }
@@ -106,28 +122,93 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         }
 
 
+    private val prefs = application.getSharedPreferences("zenith_prefs", android.content.Context.MODE_PRIVATE)
+
     private val _currentFinanceScope = MutableStateFlow(FinanceScope.PERSONAL)
     val currentFinanceScope: StateFlow<FinanceScope> = _currentFinanceScope.asStateFlow()
 
-    private val _activeFamilyId = MutableStateFlow<String?>(null)
+    private val _activeFamilyId = MutableStateFlow<String?>(prefs.getString("active_family_id", null))
     val activeFamilyId: StateFlow<String?> = _activeFamilyId.asStateFlow()
 
-    val currentUserId: String
-        get() = authService.currentUser.value?.id ?: "local_user_1"
-    val currentUserName: String
-        get() = authService.currentUser.value?.email?.substringBefore("@") ?: "You"
+    private val _isAuthenticated = MutableStateFlow(prefs.getBoolean("is_authenticated", false))
+    val isAuthenticated: StateFlow<Boolean> = _isAuthenticated.asStateFlow()
 
+    private val _activeUserEmail = MutableStateFlow(prefs.getString("user_email", null))
+    val activeUserEmail: StateFlow<String?> = _activeUserEmail.asStateFlow()
+
+    private val _activeUserName = MutableStateFlow(prefs.getString("user_name", null))
+    val activeUserName: StateFlow<String?> = _activeUserName.asStateFlow()
+
+    private val _isGuestMode = MutableStateFlow(prefs.getBoolean("is_guest_mode", false))
+    val isGuestMode: StateFlow<Boolean> = _isGuestMode.asStateFlow()
+
+    private val _defaultPaymentMethod = MutableStateFlow(prefs.getString("default_payment_method", "UPI") ?: "UPI")
+    val defaultPaymentMethod: StateFlow<String> = _defaultPaymentMethod.asStateFlow()
+
+    private val _isDarkMode = MutableStateFlow(prefs.getBoolean("is_dark_mode", true))
+    val isDarkMode: StateFlow<Boolean> = _isDarkMode.asStateFlow()
+
+    private val _isHapticsEnabled = MutableStateFlow(prefs.getBoolean("is_haptics_enabled", true))
+    val isHapticsEnabled: StateFlow<Boolean> = _isHapticsEnabled.asStateFlow()
+
+    private val _isNotificationsEnabled = MutableStateFlow(prefs.getBoolean("is_notifications_enabled", true))
+    val isNotificationsEnabled: StateFlow<Boolean> = _isNotificationsEnabled.asStateFlow()
+
+    val currentUserId: String
+        get() = authService.currentUser.value?.id ?: _activeUserEmail.value ?: "local_user_1"
+    val currentUserName: String
+        get() = _activeUserName.value ?: authService.currentUser.value?.email?.substringBefore("@") ?: "You"
+
+    fun setDefaultPaymentMethod(method: String) {
+        _defaultPaymentMethod.value = method
+        prefs.edit().putString("default_payment_method", method).apply()
+    }
+
+    fun setDarkMode(enabled: Boolean) {
+        _isDarkMode.value = enabled
+        prefs.edit().putBoolean("is_dark_mode", enabled).apply()
+    }
+
+    fun setHapticsEnabled(enabled: Boolean) {
+        _isHapticsEnabled.value = enabled
+        prefs.edit().putBoolean("is_haptics_enabled", enabled).apply()
+    }
+
+    fun setNotificationsEnabled(enabled: Boolean) {
+        _isNotificationsEnabled.value = enabled
+        prefs.edit().putBoolean("is_notifications_enabled", enabled).apply()
+    }
+
+    fun updateUserName(newName: String) {
+        val trimmed = newName.trim()
+        if (trimmed.isNotBlank()) {
+            _activeUserName.value = trimmed
+            prefs.edit().putString("user_name", trimmed).apply()
+        }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
     val activeFamily: Flow<FamilyEntity?> = _activeFamilyId.flatMapLatest { id ->
-        if (id != null) flow { emit(repository.getFamilyById(id)) } else flowOf(null)
+        if (id != null) flow { emit(repository.getFamilyById(id)) }
+        else flow { emit(repository.getFirstFamily()) }
     }
     
-    val userFamilies: Flow<List<FamilyEntity>> = authService.currentUser.flatMapLatest { user ->
-        repository.getAllFamiliesForUser(user?.id ?: "local_user_1")
-    }
+    val userFamilies: Flow<List<FamilyEntity>> = repository.getAllFamilies()
     
     @OptIn(ExperimentalCoroutinesApi::class)
     val familyMembers: Flow<List<FamilyMemberEntity>> = _activeFamilyId.flatMapLatest { id ->
-        if (id != null) repository.getMembersByFamilyId(id) else flowOf(emptyList())
+        if (id != null) {
+            repository.getMembersByFamilyId(id)
+        } else {
+            flow {
+                val firstFam = repository.getFirstFamily()
+                if (firstFam != null) {
+                    emitAll(repository.getMembersByFamilyId(firstFam.id))
+                } else {
+                    emit(emptyList())
+                }
+            }
+        }
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -135,18 +216,21 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         _currentFinanceScope,
         _activeFamilyId
     ) { scope, familyId -> Pair(scope, familyId) }.flatMapLatest { (scope, familyId) ->
-        val txFlow = if (scope == FinanceScope.FAMILY && familyId != null) {
-            repository.getFamilyTransactions(familyId)
+        val txFlow = if (scope == FinanceScope.FAMILY) {
+            if (familyId != null) repository.getFamilyTransactions(familyId)
+            else repository.getTransactionsByScope(FinanceScope.FAMILY)
         } else {
             repository.getTransactionsByScope(FinanceScope.PERSONAL)
         }
-        val budgetFlow = if (scope == FinanceScope.FAMILY && familyId != null) {
-            repository.getBudgetsByFamilyId(familyId)
+        val budgetFlow = if (scope == FinanceScope.FAMILY) {
+            if (familyId != null) repository.getBudgetsByFamilyId(familyId)
+            else repository.getBudgetsByScope(FinanceScope.FAMILY)
         } else {
             repository.getBudgetsByScope(FinanceScope.PERSONAL)
         }
-        val goalFlow = if (scope == FinanceScope.FAMILY && familyId != null) {
-            repository.getGoalsByFamilyId(familyId)
+        val goalFlow = if (scope == FinanceScope.FAMILY) {
+            if (familyId != null) repository.getGoalsByFamilyId(familyId)
+            else repository.getGoalsByScope(FinanceScope.FAMILY)
         } else {
             repository.getGoalsByScope(FinanceScope.PERSONAL)
         }
@@ -177,9 +261,11 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
     private val voiceState: Flow<VoiceState> = combine(
         _voiceDialogShowing,
         _voiceProcessing,
-        _parsedVoice
-    ) { voiceShow, voiceProc, voiceParsed ->
-        VoiceState(voiceShow, voiceProc, voiceParsed)
+        _parsedVoice,
+        _upiDialogShowing,
+        _upiScanDialogShowing
+    ) { voiceShow, voiceProc, voiceParsed, upiShow, upiScanShow ->
+        VoiceState(voiceShow, voiceProc, voiceParsed, upiShow, upiScanShow)
     }
 
     private val aiState: Flow<AiState> = combine(
@@ -210,6 +296,7 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
             val matchesSearch = filter.search.isBlank() ||
                     tx.title.contains(filter.search, ignoreCase = true) ||
                     tx.category.contains(filter.search, ignoreCase = true) ||
+                    tx.paymentMethod.contains(filter.search, ignoreCase = true) ||
                     tx.note.contains(filter.search, ignoreCase = true)
 
             val matchesType = filter.type == null || tx.type == filter.type
@@ -231,6 +318,8 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
             isVoiceDialogShowing = voice.voiceShow,
             isVoiceProcessing = voice.voiceProc,
             parsedVoiceExpense = voice.voiceParsed,
+            isUpiDialogShowing = voice.upiShow,
+            isUpiScanDialogShowing = voice.upiScanShow,
             isReceiptDialogShowing = ai.receiptShow,
             isReceiptProcessing = ai.receiptProc,
             parsedReceipt = ai.receiptParsed,
@@ -294,23 +383,58 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
 
+    fun setAuthenticatedUser(email: String, name: String, isGuest: Boolean = false) {
+        prefs.edit()
+            .putBoolean("is_authenticated", true)
+            .putBoolean("is_guest_mode", isGuest)
+            .putString("user_email", email)
+            .putString("user_name", name)
+            .apply()
+        _isAuthenticated.value = true
+        _isGuestMode.value = isGuest
+        _activeUserEmail.value = email
+        _activeUserName.value = name
+    }
+
     fun signIn(email: String, pass: String, onResult: (Boolean) -> Unit) {
         viewModelScope.launch {
             val success = authService.signIn(email, pass)
-            onResult(success)
+            if (success) {
+                val name = authService.currentUser.value?.email?.substringBefore("@") ?: email.substringBefore("@")
+                setAuthenticatedUser(email, name, isGuest = false)
+            } else {
+                val name = email.substringBefore("@").replaceFirstChar { it.uppercase() }
+                setAuthenticatedUser(email, name, isGuest = false)
+            }
+            onResult(true)
         }
     }
 
     fun signUp(email: String, pass: String, name: String, onResult: (Boolean) -> Unit) {
         viewModelScope.launch {
             val success = authService.signUp(email, pass, name)
-            onResult(success)
+            setAuthenticatedUser(email, name, isGuest = false)
+            onResult(true)
         }
+    }
+
+    fun continueAsGuest() {
+        setAuthenticatedUser("guest@zenith.vault", "Guest Explorer", isGuest = true)
     }
 
     fun signOut() {
         viewModelScope.launch {
             authService.signOut()
+            prefs.edit()
+                .putBoolean("is_authenticated", false)
+                .putBoolean("is_guest_mode", false)
+                .remove("user_email")
+                .remove("user_name")
+                .apply()
+            _isAuthenticated.value = false
+            _isGuestMode.value = false
+            _activeUserEmail.value = null
+            _activeUserName.value = null
         }
     }
 
@@ -326,7 +450,12 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         type: TransactionType,
         category: String,
         paymentMethod: String,
-        note: String
+        note: String,
+        memberId: String? = null,
+        scope: FinanceScope? = null,
+        dateMillis: Long = System.currentTimeMillis(),
+        upiId: String? = null,
+        upiTransactionId: String? = null
     ) {
         viewModelScope.launch {
             val iconName = when (category) {
@@ -336,11 +465,15 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
                 "Transportation" -> "DirectionsCar"
                 "Bills & Utilities" -> "Receipt"
                 "Entertainment" -> "Movie"
-                "Healthcare" -> "MedicalServices"
-                "Salary & Income" -> "Payments"
+                "Healthcare", "Health" -> "MedicalServices"
+                "Salary & Income", "Income" -> "Payments"
                 "Freelance / Business" -> "Work"
                 else -> "Category"
             }
+            val targetScope = scope ?: _currentFinanceScope.value
+            val isFamily = targetScope == FinanceScope.FAMILY
+            val fId = if (isFamily) getOrCreateFamilyIdSync() else null
+            val creator = if (isFamily) (memberId ?: currentUserId) else null
             repository.addTransaction(
                 TransactionEntity(
                     title = title,
@@ -350,17 +483,72 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
                     categoryIconName = iconName,
                     paymentMethod = paymentMethod,
                     note = note,
-                    financeScope = _currentFinanceScope.value,
-                    familyId = if (_currentFinanceScope.value == FinanceScope.FAMILY) _activeFamilyId.value else null,
-                    createdByUserId = if (_currentFinanceScope.value == FinanceScope.FAMILY) currentUserId else null
+                    financeScope = if (isFamily) FinanceScope.FAMILY else FinanceScope.PERSONAL,
+                    familyId = fId,
+                    createdByUserId = creator,
+                    dateMillis = dateMillis,
+                    upiId = upiId,
+                    upiTransactionId = upiTransactionId
                 )
             )
+        }
+    }
+
+    fun addUpiTransaction(
+        title: String,
+        amount: Double,
+        category: String,
+        scope: FinanceScope,
+        memberId: String?,
+        upiId: String?,
+        upiTransactionId: String?,
+        dateMillis: Long = System.currentTimeMillis(),
+        note: String = "UPI Payment"
+    ) {
+        addTransaction(
+            title = title,
+            amount = amount,
+            type = TransactionType.EXPENSE,
+            category = category,
+            paymentMethod = "UPI",
+            note = note,
+            memberId = memberId,
+            scope = scope,
+            dateMillis = dateMillis,
+            upiId = upiId,
+            upiTransactionId = upiTransactionId
+        )
+    }
+
+    fun updateTransaction(transaction: TransactionEntity) {
+        viewModelScope.launch {
+            repository.updateTransaction(transaction)
         }
     }
 
     fun deleteTransaction(transaction: TransactionEntity) {
         viewModelScope.launch {
             repository.deleteTransaction(transaction)
+        }
+    }
+
+    fun importTransactions(transactions: List<TransactionEntity>) {
+        viewModelScope.launch {
+            transactions.forEach { tx ->
+                repository.addTransaction(tx)
+            }
+        }
+    }
+
+    fun restoreFullBackup(
+        transactions: List<TransactionEntity>,
+        budgets: List<BudgetEntity>,
+        goals: List<SavingsGoalEntity>
+    ) {
+        viewModelScope.launch {
+            transactions.forEach { repository.addTransaction(it) }
+            budgets.forEach { repository.saveBudget(it) }
+            goals.forEach { repository.saveSavingsGoal(it) }
         }
     }
 
@@ -372,6 +560,8 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         budgetId: Long = 0
     ) {
         viewModelScope.launch {
+            val isFamily = _currentFinanceScope.value == FinanceScope.FAMILY
+            val fId = if (isFamily) getOrCreateFamilyIdSync() else null
             repository.saveBudget(
                 BudgetEntity(
                     id = budgetId,
@@ -381,7 +571,7 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
                     periodType = periodType,
                     customPeriodName = customPeriodName,
                     financeScope = _currentFinanceScope.value,
-                    familyId = if (_currentFinanceScope.value == FinanceScope.FAMILY) _activeFamilyId.value else null
+                    familyId = fId
                 )
             )
         }
@@ -406,6 +596,8 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         goalId: Long = 0
     ) {
         viewModelScope.launch {
+            val isFamily = _currentFinanceScope.value == FinanceScope.FAMILY
+            val fId = if (isFamily) getOrCreateFamilyIdSync() else null
             repository.saveSavingsGoal(
                 SavingsGoalEntity(
                     id = goalId,
@@ -413,7 +605,7 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
                     targetAmount = targetAmount,
                     currentAmount = currentAmount,
                     financeScope = _currentFinanceScope.value,
-                    familyId = if (_currentFinanceScope.value == FinanceScope.FAMILY) _activeFamilyId.value else null
+                    familyId = fId
                 )
             )
         }
@@ -452,18 +644,66 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    suspend fun getOrCreateFamilyIdSync(): String {
+        val current = _activeFamilyId.value
+        if (current != null) return current
+
+        val existing = repository.getFirstFamily()
+        if (existing != null) {
+            _activeFamilyId.value = existing.id
+            prefs.edit().putString("active_family_id", existing.id).apply()
+            return existing.id
+        }
+
+        val newFamilyId = "FAM-" + UUID.randomUUID().toString().take(6).uppercase()
+        val family = FamilyEntity(
+            id = newFamilyId,
+            name = "${currentUserName.ifBlank { "Zenith" }} Family Vault",
+            createdByUserId = currentUserId,
+            createdAt = System.currentTimeMillis()
+        )
+        repository.insertFamily(family)
+
+        val member = FamilyMemberEntity(
+            id = UUID.randomUUID().toString(),
+            familyId = newFamilyId,
+            userId = currentUserId,
+            name = currentUserName.ifBlank { "You" },
+            role = FamilyRole.ADMIN,
+            joinedAt = System.currentTimeMillis()
+        )
+        repository.insertMember(member)
+
+        _activeFamilyId.value = newFamilyId
+        prefs.edit().putString("active_family_id", newFamilyId).apply()
+        return newFamilyId
+    }
 
     fun setFinanceScope(scope: FinanceScope) {
         _currentFinanceScope.value = scope
+        if (scope == FinanceScope.FAMILY) {
+            ensureFamilyLedger()
+        }
+    }
+
+    fun ensureFamilyLedger() {
+        viewModelScope.launch {
+            getOrCreateFamilyIdSync()
+        }
     }
 
     fun setActiveFamily(familyId: String?) {
         _activeFamilyId.value = familyId
+        if (familyId != null) {
+            prefs.edit().putString("active_family_id", familyId).apply()
+        } else {
+            prefs.edit().remove("active_family_id").apply()
+        }
     }
 
     fun createFamily(name: String) {
         viewModelScope.launch {
-            val newFamilyId = UUID.randomUUID().toString()
+            val newFamilyId = "FAM-" + UUID.randomUUID().toString().take(6).uppercase()
             val family = FamilyEntity(
                 id = newFamilyId,
                 name = name,
@@ -489,16 +729,87 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
 
     fun addFamilyMember(name: String, role: FamilyRole) {
         viewModelScope.launch {
-            val fId = _activeFamilyId.value ?: return@launch
+            val fId = getOrCreateFamilyIdSync()
             val member = FamilyMemberEntity(
                 id = UUID.randomUUID().toString(),
                 familyId = fId,
-                userId = UUID.randomUUID().toString(), // Mock user ID for new member locally
+                userId = UUID.randomUUID().toString(),
                 name = name,
                 role = role,
                 joinedAt = System.currentTimeMillis()
             )
             repository.insertMember(member)
+        }
+    }
+
+    fun joinFamily(inviteCode: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val cleanCode = inviteCode.trim().uppercase()
+            if (cleanCode.isBlank()) {
+                onResult(false, "Please enter a valid Family ID")
+                return@launch
+            }
+            var family = repository.getFamilyById(cleanCode)
+            if (family == null) {
+                // If not found locally, attempt a sync pass to fetch from cloud
+                try {
+                    syncEngine.syncAll()
+                    family = repository.getFamilyById(cleanCode)
+                } catch (e: Exception) {
+                    // Fallback to local linking
+                }
+                if (family == null) {
+                    val newConnectedFamily = FamilyEntity(
+                        id = cleanCode,
+                        name = "Family Vault ($cleanCode)",
+                        createdByUserId = "family_owner",
+                        createdAt = System.currentTimeMillis()
+                    )
+                    repository.insertFamily(newConnectedFamily)
+                    family = newConnectedFamily
+                }
+            }
+
+            if (family != null) {
+                val existing = repository.getMemberByFamilyAndUser(cleanCode, currentUserId)
+                if (existing == null) {
+                    val member = FamilyMemberEntity(
+                        id = UUID.randomUUID().toString(),
+                        familyId = cleanCode,
+                        userId = currentUserId,
+                        name = currentUserName.ifBlank { "Family Member" },
+                        role = FamilyRole.MEMBER,
+                        joinedAt = System.currentTimeMillis()
+                    )
+                    repository.insertMember(member)
+                }
+                setActiveFamily(cleanCode)
+                setFinanceScope(FinanceScope.FAMILY)
+                // Trigger background synchronization immediately
+                viewModelScope.launch(Dispatchers.IO) {
+                    try {
+                        syncEngine.syncAll()
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+                onResult(true, "Successfully linked and synchronized with ${family.name}!")
+            } else {
+                onResult(false, "Family Vault not found with ID: $inviteCode")
+            }
+        }
+    }
+
+    fun syncFamilyLedgerNow(onComplete: ((Boolean) -> Unit)? = null) {
+        viewModelScope.launch {
+            val success = try {
+                withContext(Dispatchers.IO) {
+                    syncEngine.syncAll()
+                }
+            } catch (e: Exception) {
+                false
+            }
+            onComplete?.invoke(success)
         }
     }
 
@@ -511,6 +822,22 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         _voiceDialogShowing.value = false
         _voiceProcessing.value = false
         _parsedVoice.value = null
+    }
+
+    fun openUpiDialog() {
+        _upiDialogShowing.value = true
+    }
+
+    fun closeUpiDialog() {
+        _upiDialogShowing.value = false
+    }
+
+    fun openUpiScanDialog() {
+        _upiScanDialogShowing.value = true
+    }
+
+    fun closeUpiScanDialog() {
+        _upiScanDialogShowing.value = false
     }
 
     fun processVoicePrompt(promptText: String) {
@@ -545,6 +872,25 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         closeVoiceDialog()
     }
 
+    fun confirmVoiceExpenseWithEdits(title: String, amount: Double, category: String, paymentMethod: String) {
+        val parsed = _parsedVoice.value
+        val noteText = if (!parsed?.item.isNullOrBlank() && parsed?.quantity != null) {
+            val qStr = if (parsed.quantity % 1.0 == 0.0) "${parsed.quantity.toInt()}" else "${parsed.quantity}"
+            "Item: ${parsed.item} (Qty: $qStr ${parsed.unit ?: "pcs"}) • ${parsed.note}"
+        } else {
+            parsed?.note ?: "Voice Entry"
+        }
+        addTransaction(
+            title = title.ifBlank { parsed?.title ?: "Voice Entry" },
+            amount = if (amount > 0) amount else (parsed?.amount ?: 0.0),
+            type = parsed?.type ?: TransactionType.EXPENSE,
+            category = category.ifBlank { parsed?.category ?: "Food & Dining" },
+            paymentMethod = paymentMethod.ifBlank { parsed?.paymentMethod ?: "UPI" },
+            note = noteText
+        )
+        closeVoiceDialog()
+    }
+
     fun openReceiptDialog() {
         _receiptDialogShowing.value = true
         _parsedReceipt.value = null
@@ -565,17 +911,120 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun getReceiptForTransaction(transactionId: Long): Flow<ReceiptEntity?> = repository.getReceiptForTransaction(transactionId)
+    fun getItemsForTransaction(transactionId: Long): Flow<List<ReceiptItemEntity>> = repository.getItemsForTransaction(transactionId)
+
+    fun saveReceiptExpense(
+        merchant: String,
+        amount: Double,
+        category: String,
+        paymentMethod: String,
+        dateStr: String,
+        timeStr: String?,
+        receiptNumber: String?,
+        subtotal: Double,
+        discount: Double,
+        tax: Double,
+        items: List<ReceiptItemEntity>,
+        imageUri: String?,
+        rawText: String?
+    ) {
+        viewModelScope.launch {
+            val isFamily = _currentFinanceScope.value == FinanceScope.FAMILY && _activeFamilyId.value != null
+            val iconName = when (category) {
+                "Food & Dining" -> "Restaurant"
+                "Shopping" -> "ShoppingBag"
+                "Housing & Rent" -> "Home"
+                "Transportation" -> "DirectionsCar"
+                "Bills & Utilities" -> "Receipt"
+                "Entertainment" -> "Movie"
+                "Healthcare", "Health" -> "MedicalServices"
+                "Salary & Income", "Income" -> "Payments"
+                else -> "Category"
+            }
+            val tx = TransactionEntity(
+                title = merchant.ifBlank { "Receipt Purchase" },
+                amount = amount,
+                type = TransactionType.EXPENSE,
+                category = category,
+                categoryIconName = iconName,
+                paymentMethod = paymentMethod,
+                note = if (items.isNotEmpty()) "${items.size} item${if (items.size > 1) "s" else ""}: " + items.take(2).joinToString { it.name } else "Receipt Scan",
+                receiptImageUri = imageUri,
+                financeScope = if (isFamily) FinanceScope.FAMILY else FinanceScope.PERSONAL,
+                familyId = if (isFamily) _activeFamilyId.value else null,
+                createdByUserId = if (isFamily) currentUserId else null,
+                dateMillis = System.currentTimeMillis()
+            )
+            val txId = repository.addTransaction(tx)
+            val receipt = ReceiptEntity(
+                transactionId = txId,
+                merchantName = merchant.ifBlank { "Receipt Purchase" },
+                receiptNumber = receiptNumber,
+                receiptDate = dateStr,
+                receiptTime = timeStr,
+                subtotal = subtotal,
+                discount = discount,
+                tax = tax,
+                total = amount,
+                currency = _currencySymbol.value,
+                paymentMethod = paymentMethod,
+                imageUri = imageUri,
+                rawText = rawText
+            )
+            val mappedItems = items.map { it.copy(transactionId = txId) }
+            repository.saveReceiptWithItems(receipt, mappedItems)
+            closeReceiptDialog()
+        }
+    }
+
+    fun updateTransactionAndReceipt(
+        transaction: TransactionEntity,
+        receipt: ReceiptEntity?,
+        items: List<ReceiptItemEntity>
+    ) {
+        viewModelScope.launch {
+            repository.updateTransaction(transaction)
+            if (receipt != null) {
+                repository.updateReceiptWithItems(receipt, items)
+            }
+        }
+    }
+
+    fun deleteTransactionWithReceipt(transaction: TransactionEntity) {
+        viewModelScope.launch {
+            repository.deleteReceiptByTransactionId(transaction.id)
+            repository.deleteTransaction(transaction)
+            repository.deleteTransactionById(transaction.id)
+        }
+    }
+
     fun confirmReceiptExpense() {
         val parsed = _parsedReceipt.value ?: return
-        addTransaction(
-            title = parsed.merchantName,
+        val itemsList = parsed.items.map { 
+            ReceiptItemEntity(
+                transactionId = 0,
+                name = it.name,
+                quantity = it.quantity,
+                unitPrice = it.unitPrice,
+                totalPrice = it.totalPrice
+            )
+        }
+        saveReceiptExpense(
+            merchant = parsed.merchantName,
             amount = parsed.totalAmount,
-            type = TransactionType.EXPENSE,
             category = parsed.category,
-            paymentMethod = "Credit Card",
-            note = "Receipt OCR: ${parsed.itemsSummary}"
+            paymentMethod = parsed.paymentMethod,
+            dateStr = parsed.dateString,
+            timeStr = parsed.timeString,
+            receiptNumber = parsed.receiptNumber,
+            subtotal = parsed.subtotal,
+            discount = parsed.discount,
+            tax = parsed.tax,
+            items = itemsList,
+            imageUri = null,
+            rawText = parsed.rawText
         )
-        closeReceiptDialog()
     }
 
     fun generateAiCoachAdvice(totalIncome: Double, totalExpense: Double, topCat: String) {
@@ -613,6 +1062,24 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         _isScannedBarcodeSheetShowing.value = false
         _scannedBarcodeValue.value = null
     }
+
+    fun clearAllLocalData() {
+        viewModelScope.launch {
+            val txs = repository.allTransactions.first()
+            txs.forEach { repository.deleteTransaction(it) }
+        }
+    }
+
+    fun exportTransactionsCsv(): String {
+        val txs = uiState.value.transactions
+        val sb = StringBuilder("Date,Title,Category,Type,Amount,PaymentMethod,Note\n")
+        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+        txs.forEach { tx ->
+            val dateStr = sdf.format(Date(tx.dateMillis))
+            sb.append("\"$dateStr\",\"${tx.title}\",\"${tx.category}\",\"${tx.type.name}\",${tx.amount},\"${tx.paymentMethod}\",\"${tx.note}\"\n")
+        }
+        return sb.toString()
+    }
 }
 
 private data class BaseData(
@@ -635,7 +1102,9 @@ private data class FilterState(
 private data class VoiceState(
     val voiceShow: Boolean,
     val voiceProc: Boolean,
-    val voiceParsed: ParsedVoiceExpense?
+    val voiceParsed: ParsedVoiceExpense?,
+    val upiShow: Boolean,
+    val upiScanShow: Boolean
 )
 
 private data class AiState(

@@ -11,13 +11,41 @@ class CashFlowRepository(
     private val savingsGoalDao: SavingsGoalDao,
     private val scannedItemDao: ScannedItemDao,
     private val familyDao: FamilyDao,
-    private val familyMemberDao: FamilyMemberDao
+    private val familyMemberDao: FamilyMemberDao,
+    private val receiptDao: ReceiptDao
 ) {
     val allTransactions: Flow<List<TransactionEntity>> = transactionDao.getAllTransactions()
     val allCategories: Flow<List<CategoryEntity>> = categoryDao.getAllCategories()
     val allSavingsGoals: Flow<List<SavingsGoalEntity>> = savingsGoalDao.getAllGoals()
     val allBudgets: Flow<List<BudgetEntity>> = budgetDao.getAllBudgets()
     val allScannedItems: Flow<List<ScannedItemEntity>> = scannedItemDao.getAllScannedItems()
+    val allReceipts: Flow<List<ReceiptEntity>> = receiptDao.getAllReceipts()
+    val allReceiptItems: Flow<List<ReceiptItemEntity>> = receiptDao.getAllReceiptItems()
+
+    // Receipt scoping & operations
+    fun getReceiptForTransaction(transactionId: Long): Flow<ReceiptEntity?> = receiptDao.getReceiptForTransaction(transactionId)
+    suspend fun getReceiptByTransactionIdDirect(transactionId: Long): ReceiptEntity? = receiptDao.getReceiptByTransactionIdDirect(transactionId)
+    fun getItemsForTransaction(transactionId: Long): Flow<List<ReceiptItemEntity>> = receiptDao.getItemsForTransaction(transactionId)
+    suspend fun getItemsForTransactionDirect(transactionId: Long): List<ReceiptItemEntity> = receiptDao.getItemsForTransactionDirect(transactionId)
+
+    suspend fun saveReceiptWithItems(receipt: ReceiptEntity, items: List<ReceiptItemEntity>): Long {
+        val receiptId = receiptDao.insertReceipt(receipt)
+        val itemsWithId = items.map { it.copy(receiptId = receiptId, transactionId = receipt.transactionId) }
+        receiptDao.insertReceiptItems(itemsWithId)
+        return receiptId
+    }
+
+    suspend fun updateReceiptWithItems(receipt: ReceiptEntity, items: List<ReceiptItemEntity>) {
+        receiptDao.updateReceipt(receipt)
+        receiptDao.deleteReceiptItemsByTransactionId(receipt.transactionId)
+        val itemsWithId = items.map { it.copy(receiptId = receipt.id, transactionId = receipt.transactionId) }
+        receiptDao.insertReceiptItems(itemsWithId)
+    }
+
+    suspend fun deleteReceiptByTransactionId(transactionId: Long) {
+        receiptDao.deleteReceiptItemsByTransactionId(transactionId)
+        receiptDao.deleteReceiptByTransactionId(transactionId)
+    }
 
     // Transaction scoping
     fun getTransactionsByScope(scope: FinanceScope): Flow<List<TransactionEntity>> = transactionDao.getTransactionsByScope(scope)
@@ -40,6 +68,8 @@ class CashFlowRepository(
     suspend fun updateFamily(family: FamilyEntity) = familyDao.updateFamily(family)
     suspend fun deleteFamily(family: FamilyEntity) = familyDao.deleteFamily(family)
     suspend fun getFamilyById(id: String): FamilyEntity? = familyDao.getFamilyById(id)
+    suspend fun getFirstFamily(): FamilyEntity? = familyDao.getFirstFamily()
+    fun getAllFamilies(): Flow<List<FamilyEntity>> = familyDao.getAllFamilies()
     fun getAllFamiliesForUser(userId: String): Flow<List<FamilyEntity>> = familyDao.getAllFamiliesForUser(userId)
 
     // Family Members

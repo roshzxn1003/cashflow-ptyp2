@@ -5,28 +5,42 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
-import androidx.compose.foundation.layout.*
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.models.FinanceScope
 import com.example.ui.components.AddTransactionDialog
-import com.example.ui.components.ReceiptScanModal
-import com.example.ui.components.VoiceAiModal
 import com.example.ui.components.FamilyMembersDialog
+import com.example.ui.components.ReceiptScanModal
+import com.example.ui.components.UPIPaySheet
+import com.example.ui.components.UpiQrScanModal
+import com.example.ui.components.VoiceAiModal
+import com.example.ui.components.ZenithFloatingNavigationBar
 import com.example.ui.screens.*
-import com.example.ui.theme.CashFlowTheme
+import com.example.ui.theme.*
 import com.example.ui.viewmodel.CashFlowViewModel
+
+enum class ZenithNavScreen {
+    SPLASH,
+    AUTH,
+    MAIN
+}
 
 class MainActivity : ComponentActivity() {
 
@@ -38,7 +52,58 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             CashFlowTheme {
-                CashFlowMainApp(viewModel = viewModel)
+                val isAuthenticated by viewModel.isAuthenticated.collectAsStateWithLifecycle()
+                var currentScreen by remember(isAuthenticated) {
+                    mutableStateOf(if (isAuthenticated) ZenithNavScreen.MAIN else ZenithNavScreen.SPLASH)
+                }
+                var initialAuthIsSignUp by remember { mutableStateOf(false) }
+
+                AnimatedContent(
+                    targetState = currentScreen,
+                    transitionSpec = {
+                        (fadeIn(animationSpec = tween(300)) + slideInVertically(animationSpec = tween(300)) { it / 6 })
+                            .togetherWith(fadeOut(animationSpec = tween(250)))
+                    },
+                    label = "zenith_root_screen_transition"
+                ) { screen ->
+                    when (screen) {
+                        ZenithNavScreen.SPLASH -> {
+                            SplashScreen(
+                                onNavigateToLogin = {
+                                    initialAuthIsSignUp = false
+                                    currentScreen = ZenithNavScreen.AUTH
+                                },
+                                onNavigateToRegister = {
+                                    initialAuthIsSignUp = true
+                                    currentScreen = ZenithNavScreen.AUTH
+                                },
+                                onContinueAsGuest = {
+                                    viewModel.continueAsGuest()
+                                    currentScreen = ZenithNavScreen.MAIN
+                                }
+                            )
+                        }
+                        ZenithNavScreen.AUTH -> {
+                            AuthScreen(
+                                viewModel = viewModel,
+                                initialIsSignUp = initialAuthIsSignUp,
+                                onAuthSuccess = {
+                                    currentScreen = ZenithNavScreen.MAIN
+                                },
+                                onBackToSplash = {
+                                    currentScreen = ZenithNavScreen.SPLASH
+                                },
+                                onContinueAsGuest = {
+                                    viewModel.continueAsGuest()
+                                    currentScreen = ZenithNavScreen.MAIN
+                                }
+                            )
+                        }
+                        ZenithNavScreen.MAIN -> {
+                            CashFlowMainApp(viewModel = viewModel)
+                        }
+                    }
+                }
             }
         }
     }
@@ -62,61 +127,59 @@ fun CashFlowMainApp(viewModel: CashFlowViewModel) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val currentFinanceScope by viewModel.currentFinanceScope.collectAsStateWithLifecycle()
     val activeFamilyId by viewModel.activeFamilyId.collectAsStateWithLifecycle()
+    val activeFamily by viewModel.activeFamily.collectAsStateWithLifecycle(initialValue = null)
     val familyMembers by viewModel.familyMembers.collectAsStateWithLifecycle(initialValue = emptyList())
     var showAddDialog by remember { mutableStateOf(false) }
     var showFamilyMembersDialog by remember { mutableStateOf(false) }
-
+    val context = androidx.compose.ui.platform.LocalContext.current
     val totalIncome = remember(uiState.transactions) { viewModel.getTotalIncome(uiState.transactions) }
     val totalExpense = remember(uiState.transactions) { viewModel.getTotalExpense(uiState.transactions) }
     val netBalance = remember(uiState.transactions) { viewModel.getNetBalance(uiState.transactions) }
 
     Scaffold(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(brush = AmbientBackgroundBrush),
+        containerColor = Color.Transparent,
+        floatingActionButtonPosition = FabPosition.Start,
         floatingActionButton = {
-            if (uiState.selectedTab == 0) {
-                FloatingActionButton(
-                    onClick = { viewModel.openVoiceDialog() },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                ) {
-                    Icon(imageVector = Icons.Default.Mic, contentDescription = "Voice Input")
-                }
+            FloatingActionButton(
+                onClick = { showAddDialog = true },
+                modifier = Modifier
+                    .padding(start = 8.dp, bottom = 80.dp)
+                    .testTag("fab_add_transaction"),
+                shape = RoundedCornerShape(18.dp),
+                containerColor = if (currentFinanceScope == FinanceScope.FAMILY) GoldAccent else EmeraldDarkPrimary,
+                contentColor = if (currentFinanceScope == FinanceScope.FAMILY) Color.Black else Color.White,
+                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 8.dp, pressedElevation = 12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "Add Transaction",
+                    modifier = Modifier.size(28.dp)
+                )
             }
         },
         bottomBar = {
-            NavigationBar(
-                windowInsets = WindowInsets.navigationBars
-            ) {
-                NavigationItem.entries.forEachIndexed { index, item ->
-                    val isSelected = uiState.selectedTab == index
-                    NavigationBarItem(
-                        selected = isSelected,
-                        onClick = { viewModel.setTab(index) },
-                        label = { Text(item.title, fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
-                        icon = {
-                            Icon(
-                                imageVector = if (isSelected) item.selectedIcon else item.unselectedIcon,
-                                contentDescription = item.title
-                            )
-                        },
-                        modifier = Modifier.testTag(item.testTag)
-                    )
-                }
-            }
+            ZenithFloatingNavigationBar(
+                selectedTab = uiState.selectedTab,
+                onTabSelected = { index -> viewModel.setTab(index) }
+            )
         }
     ) { innerPadding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .background(brush = AmbientBackgroundBrush)
                 .padding(innerPadding)
         ) {
             AnimatedContent(
                 targetState = uiState.selectedTab,
                 transitionSpec = {
                     if (targetState > initialState) {
-                        (slideInHorizontally(animationSpec = tween(300)) { width -> width } + fadeIn(animationSpec = tween(300))).togetherWith(slideOutHorizontally(animationSpec = tween(300)) { width -> -width } + fadeOut(animationSpec = tween(300)))
+                        (slideInHorizontally(animationSpec = tween(250)) { width -> width } + fadeIn(animationSpec = tween(250))).togetherWith(slideOutHorizontally(animationSpec = tween(250)) { width -> -width } + fadeOut(animationSpec = tween(250)))
                     } else {
-                        (slideInHorizontally(animationSpec = tween(300)) { width -> -width } + fadeIn(animationSpec = tween(300))).togetherWith(slideOutHorizontally(animationSpec = tween(300)) { width -> width } + fadeOut(animationSpec = tween(300)))
+                        (slideInHorizontally(animationSpec = tween(250)) { width -> -width } + fadeIn(animationSpec = tween(250))).togetherWith(slideOutHorizontally(animationSpec = tween(250)) { width -> width } + fadeOut(animationSpec = tween(250)))
                     }
                 },
                 label = "tab_transition"
@@ -129,30 +192,41 @@ fun CashFlowMainApp(viewModel: CashFlowViewModel) {
                         totalExpense = totalExpense,
                         netBalance = netBalance,
                         currentFinanceScope = currentFinanceScope,
-                        onChangeFinanceScope = { viewModel.setFinanceScope(it) },
-                        activeFamilyId = activeFamilyId,
-                        onOpenCreateFamily = { viewModel.createFamily("My Family") },
-                        onManageMembers = { showFamilyMembersDialog = true },
+                        onScopeChange = { scope ->
+                            viewModel.setFinanceScope(scope)
+                        },
                         onOpenAddTransaction = { showAddDialog = true },
-                        onOpenVoiceAi = { viewModel.openVoiceDialog() },
-                        onOpenReceiptScan = { viewModel.openReceiptDialog() },
-                        onDeleteTransaction = { tx -> viewModel.deleteTransaction(tx) },
-                        onNavigateToTransactions = { viewModel.setTab(1) }
+                        onOpenVoiceAssistant = { viewModel.openVoiceDialog() },
+                        onOpenReceiptScanner = { viewModel.openReceiptDialog() },
+                        onOpenUpiPay = { viewModel.openUpiDialog() },
+                        onOpenUpiScan = { viewModel.openUpiScanDialog() },
+                        onDeleteTransaction = { tx -> viewModel.deleteTransactionWithReceipt(tx) },
+                        onUpdateTransaction = { tx -> viewModel.updateTransaction(tx) },
+                        onManageFamilyMembers = { showFamilyMembersDialog = true },
+                        onNavigateToActivity = { viewModel.setTab(1) },
+                        onNavigateToProfile = { viewModel.setTab(4) }
                     )
                     1 -> TransactionsScreen(
-                        familyMembers = familyMembers,
                         state = uiState,
-                        onSearchQueryChange = { q -> viewModel.setSearchQuery(q) },
+                        onSearchQueryChange = { query -> viewModel.setSearchQuery(query) },
                         onFilterTypeChange = { type -> viewModel.setFilterType(type) },
                         onFilterCategoryChange = { cat -> viewModel.setFilterCategory(cat) },
-                        onFilterMemberChange = { memberId -> viewModel.setFilterMember(memberId) },
-                        onDeleteTransaction = { tx -> viewModel.deleteTransaction(tx) },
-                        onOpenAddTransaction = { showAddDialog = true }
+                        onFilterMemberChange = { member -> viewModel.setFilterMember(member) },
+                        onDeleteTransaction = { tx -> viewModel.deleteTransactionWithReceipt(tx) },
+                        onUpdateTransaction = { tx -> viewModel.updateTransaction(tx) },
+                        onOpenAddTransaction = { showAddDialog = true },
+                        familyMembers = familyMembers
                     )
                     2 -> BudgetsAndGoalsScreen(
                         state = uiState,
-                        onSaveBudget = { cat, limit, period, customName, id ->
-                            viewModel.saveBudget(cat, limit, period, customName, id)
+                        onSaveBudget = { cat, limit, periodType, customName, budgetId ->
+                            viewModel.saveBudget(
+                                categoryName = cat,
+                                limit = limit,
+                                periodType = periodType,
+                                customPeriodName = customName,
+                                budgetId = budgetId
+                            )
                         },
                         onDeleteBudget = { budget -> viewModel.deleteBudget(budget) },
                         onSaveSavingsGoal = { goal ->
@@ -173,7 +247,8 @@ fun CashFlowMainApp(viewModel: CashFlowViewModel) {
                         state = uiState,
                         viewModel = viewModel,
                         onCurrencySelect = { curr -> viewModel.setCurrency(curr) },
-                        onDeleteScannedItem = { item -> viewModel.deleteScannedItem(item) }
+                        onDeleteScannedItem = { item -> viewModel.deleteScannedItem(item) },
+                        onNavigateToActivity = { viewModel.setTab(1) }
                     )
                 }
             }
@@ -182,32 +257,107 @@ fun CashFlowMainApp(viewModel: CashFlowViewModel) {
         if (showFamilyMembersDialog && currentFinanceScope == com.example.data.models.FinanceScope.FAMILY) {
             FamilyMembersDialog(
                 familyMembers = familyMembers,
+                familyName = activeFamily?.name ?: "Family Vault",
+                familyId = activeFamily?.id ?: activeFamilyId ?: "",
                 onDismiss = { showFamilyMembersDialog = false },
-                onAddMember = { name, role -> viewModel.addFamilyMember(name, role) }
+                onAddMember = { name, role ->
+                    viewModel.addFamilyMember(name, role)
+                },
+                onJoinFamily = { code ->
+                    viewModel.joinFamily(code) { success, msg ->
+                        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                },
+                onSyncNow = {
+                    viewModel.syncFamilyLedgerNow { success ->
+                        android.widget.Toast.makeText(
+                            context,
+                            if (success) "Family ledger synchronized!" else "Sync complete (offline mode).",
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
             )
         }
 
-        // Global Modals
         if (showAddDialog) {
             AddTransactionDialog(
                 categories = uiState.categories,
+                familyMembers = familyMembers,
                 currencySymbol = uiState.currencySymbol,
+                currentFinanceScope = currentFinanceScope,
+                currentUserId = viewModel.currentUserId,
+                currentUserName = viewModel.currentUserName,
+                familyName = activeFamily?.name ?: "Family Vault",
                 onDismiss = { showAddDialog = false },
-                onSave = { title, amount, type, category, pm, note ->
-                    viewModel.addTransaction(title, amount, type, category, pm, note)
+                onAdd = { title, amount, type, category, dateMillis, note, paymentMethod, memberId, scope ->
+                    viewModel.addTransaction(title, amount, type, category, paymentMethod, note, memberId, scope, dateMillis)
+                    showAddDialog = false
+                }
+            )
+        }
+
+        if (uiState.isUpiScanDialogShowing) {
+            UpiQrScanModal(
+                currencySymbol = uiState.currencySymbol,
+                currentFinanceScope = currentFinanceScope,
+                currentUserName = viewModel.currentUserName,
+                familyName = activeFamily?.name ?: "Family Vault",
+                familyMembers = familyMembers,
+                onDismiss = { viewModel.closeUpiScanDialog() },
+                onSaveTransaction = { title, amount, category, scope, memberId, upiId, upiTransactionId ->
+                    viewModel.addUpiTransaction(
+                        title = title,
+                        amount = amount,
+                        category = category,
+                        scope = scope,
+                        memberId = memberId,
+                        upiId = upiId,
+                        upiTransactionId = upiTransactionId
+                    )
+                    viewModel.closeUpiScanDialog()
+                }
+            )
+        }
+
+        if (uiState.isUpiDialogShowing) {
+            UPIPaySheet(
+                currencySymbol = uiState.currencySymbol,
+                currentFinanceScope = currentFinanceScope,
+                currentUserId = viewModel.currentUserId,
+                currentUserName = viewModel.currentUserName,
+                familyName = activeFamily?.name ?: "Family Vault",
+                familyMembers = familyMembers,
+                onDismiss = { viewModel.closeUpiDialog() },
+                onSaveTransaction = { title, amount, category, scope, memberId, upiId, upiTransactionId ->
+                    viewModel.addUpiTransaction(
+                        title = title,
+                        amount = amount,
+                        category = category,
+                        scope = scope,
+                        memberId = memberId,
+                        upiId = upiId,
+                        upiTransactionId = upiTransactionId
+                    )
+                    viewModel.closeUpiDialog()
                 }
             )
         }
 
         if (uiState.isVoiceDialogShowing) {
-            VoiceAiModal(
-                isProcessing = uiState.isVoiceProcessing,
+            VoiceAiModal(                isProcessing = uiState.isVoiceProcessing,
                 parsedExpense = uiState.parsedVoiceExpense,
                 currencySymbol = uiState.currencySymbol,
                 onDismiss = { viewModel.closeVoiceDialog() },
                 onProcessPrompt = { prompt -> viewModel.processVoicePrompt(prompt) },
-                onProcessAudio = { audioBase64 -> viewModel.processAudioPrompt(audioBase64) },
-                onConfirmSave = { viewModel.confirmVoiceExpense() }
+                onProcessAudio = { },
+                onConfirmSave = { title, amount, category, paymentMethod ->
+                    viewModel.confirmVoiceExpenseWithEdits(title, amount, category, paymentMethod)
+                },
+                onOpenManualAdd = {
+                    viewModel.closeVoiceDialog()
+                    showAddDialog = true
+                }
             )
         }
 
@@ -217,71 +367,19 @@ fun CashFlowMainApp(viewModel: CashFlowViewModel) {
                 parsedReceipt = uiState.parsedReceipt,
                 currencySymbol = uiState.currencySymbol,
                 onDismiss = { viewModel.closeReceiptDialog() },
-                onProcessReceipt = { rawText -> viewModel.processReceiptText(rawText) },
+                onProcessReceipt = { text -> viewModel.processReceiptText(text) },
                 onConfirmSave = { viewModel.confirmReceiptExpense() },
-                onBarcodeScanned = { barcode ->
+                onSaveReceiptDetails = { merchant, amount, category, paymentMethod, dateStr, timeStr, receiptNumber, subtotal, discount, tax, items, imageUri, rawText ->
+                    viewModel.saveReceiptExpense(
+                        merchant, amount, category, paymentMethod, dateStr, timeStr, receiptNumber, subtotal, discount, tax, items, imageUri, rawText
+                    )
+                },
+                onBarcodeScanned = { barcode -> viewModel.openScannedBarcodeSheet(barcode) },
+                onOpenManualAdd = {
                     viewModel.closeReceiptDialog()
-                    viewModel.openScannedBarcodeSheet(barcode)
+                    showAddDialog = true
                 }
             )
-        }
-
-        val barcode = uiState.scannedBarcodeValue
-        if (uiState.isScannedBarcodeSheetShowing && barcode != null) {
-            ScannedItemBottomSheet(
-                barcodeValue = barcode,
-                onDismiss = { viewModel.closeScannedBarcodeSheet() },
-                onAddToList = { productName ->
-                    viewModel.addScannedItem(barcode, productName)
-                    viewModel.closeScannedBarcodeSheet()
-                }
-            )
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ScannedItemBottomSheet(
-    barcodeValue: String,
-    onDismiss: () -> Unit,
-    onAddToList: (String) -> Unit
-) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var productName by remember { mutableStateOf("") }
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(24.dp)
-        ) {
-            Text("Product Scanned", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(16.dp))
-            Text("Barcode: $barcodeValue", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            
-            Spacer(modifier = Modifier.height(24.dp))
-            OutlinedTextField(
-                value = productName,
-                onValueChange = { productName = it },
-                label = { Text("Product Name") },
-                modifier = Modifier.fillMaxWidth()
-            )
-            
-            Spacer(modifier = Modifier.height(32.dp))
-            Button(
-                onClick = { onAddToList(if (productName.isBlank()) "Unknown Product" else productName) },
-                modifier = Modifier.fillMaxWidth().height(48.dp),
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
-            ) {
-                Icon(Icons.Default.Add, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Add to List")
-            }
-            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }

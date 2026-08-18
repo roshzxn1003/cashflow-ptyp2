@@ -58,6 +58,8 @@ data class TransactionEntity(
     val paymentMethod: String = "Cash", // Cash, Credit Card, UPI, Debit Card, Bank Transfer
     val dateMillis: Long = System.currentTimeMillis(),
     val receiptImageUri: String? = null,
+    val upiId: String? = null, // VPA of the payee, e.g. "someone@okhdfcbank"
+    val upiTransactionId: String? = null, // UTR / reference id only when a supported source provides it
     val financeScope: FinanceScope = FinanceScope.PERSONAL,
     val familyId: String? = null,
     val createdByUserId: String? = null,
@@ -134,3 +136,34 @@ data class UserProfileEntity(
     val updatedAt: Long = System.currentTimeMillis(),
     val isDeleted: Boolean = false
 )
+
+@Entity(tableName = "receipts")
+data class ReceiptEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val transactionId: Long,
+    val merchantName: String,
+    val receiptNumber: String? = null,
+    val receiptDate: String = "",
+    val receiptTime: String? = null,
+    val subtotal: Double = 0.0,
+    val discount: Double = 0.0,
+    val tax: Double = 0.0,
+    val total: Double = 0.0,
+    val currency: String = "₹",
+    val paymentMethod: String = "UPI",
+    val imageUri: String? = null,
+    val rawText: String? = null,
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "receipt_items")
+data class ReceiptItemEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val receiptId: Long = 0,
+    val transactionId: Long,
+    val name: String,
+    val quantity: Double = 1.0,
+    val unitPrice: Double = 0.0,
+    val totalPrice: Double = 0.0
+)
+

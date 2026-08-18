@@ -55,6 +55,8 @@ CREATE TABLE transactions (
     category_id UUID REFERENCES categories(id),
     description TEXT NOT NULL,
     payment_method TEXT NOT NULL,
+    upi_id TEXT,
+    upi_transaction_id TEXT,
     transaction_date TIMESTAMP WITH TIME ZONE NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
