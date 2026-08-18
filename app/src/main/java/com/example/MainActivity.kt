@@ -141,12 +141,12 @@ fun CashFlowMainApp(viewModel: CashFlowViewModel) {
             .fillMaxSize()
             .background(brush = AmbientBackgroundBrush),
         containerColor = Color.Transparent,
-        floatingActionButtonPosition = FabPosition.Start,
+        floatingActionButtonPosition = FabPosition.End,
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { showAddDialog = true },
                 modifier = Modifier
-                    .padding(start = 8.dp, bottom = 80.dp)
+                    .padding(end = 8.dp, bottom = 42.dp)
                     .testTag("fab_add_transaction"),
                 shape = RoundedCornerShape(18.dp),
                 containerColor = if (currentFinanceScope == FinanceScope.FAMILY) GoldAccent else EmeraldDarkPrimary,
