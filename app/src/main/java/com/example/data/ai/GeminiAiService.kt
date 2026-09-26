@@ -1,14 +1,41 @@
 package com.example.data.ai
 
-import com.example.data.models.TransactionType
+import android.util.Log
+import com.example.data.models.*
 import com.example.BuildConfig
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
+import java.text.SimpleDateFormat
+import java.util.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+
+data class AssistantChatMessage(
+    val id: String = UUID.randomUUID().toString(),
+    val text: String,
+    val isUser: Boolean,
+    val timestamp: Long = System.currentTimeMillis(),
+    val actionSuggested: String? = null
+)
+
+data class FinancialContextData(
+    val currentUserName: String = "User",
+    val scope: String = "Personal",
+    val currencySymbol: String = "₹",
+    val totalIncome: Double = 0.0,
+    val totalExpense: Double = 0.0,
+    val netBalance: Double = 0.0,
+    val savingsRate: Int = 0,
+    val categorySpendMap: Map<String, Double> = emptyMap(),
+    val paymentMethodSpendMap: Map<String, Double> = emptyMap(),
+    val recentTransactions: List<TransactionEntity> = emptyList(),
+    val budgets: List<BudgetEntity> = emptyList(),
+    val savingsGoals: List<SavingsGoalEntity> = emptyList(),
+    val familyMembers: List<FamilyMemberEntity> = emptyList()
+)
 
 data class ParsedVoiceExpense(
     val title: String,
@@ -429,46 +456,294 @@ object GeminiAiService {
         }
     }
 
+    /**
+     * Interactive AI Financial Assistant that answers queries with full access to accessible transaction history,
+     * budgets, goals, and categories in English, Tamil, and Tanglish.
+     */
+    suspend fun queryFinancialAssistant(
+        userQuery: String,
+        context: FinancialContextData,
+        conversationHistory: List<AssistantChatMessage> = emptyList()
+    ): String = withContext(Dispatchers.IO) {
+        val apiKey = try { BuildConfig.GEMINI_API_KEY } catch (e: Exception) { "" }
+        if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY") {
+            Log.w("Zenith_AI", "No remote Gemini API key configured. Using intelligent offline financial reasoning.")
+            return@withContext offlineAnswerFinancialQuery(userQuery, context)
+        }
+
+        try {
+            val systemInstruction = buildAssistantSystemPrompt(context)
+            val fullPrompt = if (conversationHistory.isNotEmpty()) {
+                val pastContext = conversationHistory.takeLast(6).joinToString("\n") { msg ->
+                    if (msg.isUser) "User: ${msg.text}" else "Assistant: ${msg.text}"
+                }
+                "Previous Conversation:\n$pastContext\n\nUser Question: $userQuery"
+            } else {
+                userQuery
+            }
+
+            Log.i("Zenith_AI", "Querying Zenith Financial Assistant for query: '$userQuery'")
+            val response = callGeminiApi(apiKey, systemInstruction, fullPrompt)
+            if (response.isNotBlank()) response else offlineAnswerFinancialQuery(userQuery, context)
+        } catch (e: Exception) {
+            Log.e("Zenith_AI", "Gemini API Assistant error: ${e.message}. Falling back to offline intelligence.", e)
+            offlineAnswerFinancialQuery(userQuery, context)
+        }
+    }
+
+    private fun buildAssistantSystemPrompt(context: FinancialContextData): String {
+        val sdf = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
+        val txListFormatted = context.recentTransactions.take(30).joinToString("\n") { tx ->
+            val dStr = sdf.format(Date(tx.dateMillis))
+            "- $dStr: ${tx.title} | ${if (tx.type == TransactionType.INCOME) "+Income" else "-Expense"} ${context.currencySymbol}${tx.amount} | Cat: ${tx.category} | Via: ${tx.paymentMethod}${if (tx.note.isNotBlank()) " | Note: ${tx.note}" else ""}${if (tx.upiId != null) " | UPI: ${tx.upiId}" else ""}"
+        }
+
+        val budgetFormatted = if (context.budgets.isEmpty()) "None set." else context.budgets.joinToString(", ") { b ->
+            "${b.categoryName}: Limit ${context.currencySymbol}${b.monthlyLimit}"
+        }
+
+        val goalsFormatted = if (context.savingsGoals.isEmpty()) "None set." else context.savingsGoals.joinToString(", ") { g ->
+            "${g.title}: ${context.currencySymbol}${g.currentAmount} / ${context.currencySymbol}${g.targetAmount}"
+        }
+
+        val catSpendFormatted = if (context.categorySpendMap.isEmpty()) "None." else context.categorySpendMap.entries.joinToString(", ") { (cat, amt) ->
+            "$cat: ${context.currencySymbol}${amt.toInt()}"
+        }
+
+        val payMethodsFormatted = if (context.paymentMethodSpendMap.isEmpty()) "None." else context.paymentMethodSpendMap.entries.joinToString(", ") { (pm, amt) ->
+            "$pm: ${context.currencySymbol}${amt.toInt()}"
+        }
+
+        return """
+            You are Zenith AI, an elite Personal & Family Financial Assistant with verified real-time access to all user transaction records, budgets, goals, and history.
+            
+            Current Financial Snapshot:
+            - Active User: ${context.currentUserName}
+            - Scope: ${context.scope} Vault
+            - Net Balance: ${context.currencySymbol}${String.format(Locale.US, "%.2f", context.netBalance)}
+            - Total Inflow (Income): ${context.currencySymbol}${String.format(Locale.US, "%.2f", context.totalIncome)}
+            - Total Outflow (Expenses): ${context.currencySymbol}${String.format(Locale.US, "%.2f", context.totalExpense)}
+            - Net Savings Rate: ${context.savingsRate}%
+            - Spending Breakdown by Category: $catSpendFormatted
+            - Spending Breakdown by Payment Method: $payMethodsFormatted
+            - Active Category Budgets: $budgetFormatted
+            - Active Savings Goals: $goalsFormatted
+            
+            Accessible Transaction History (${context.recentTransactions.size} total recorded):
+            ${if (txListFormatted.isBlank()) "No transactions recorded yet." else txListFormatted}
+            
+            Instructions:
+            1. Answer questions with exact figures from the real transaction data above.
+            2. Support questions about category spends, highest/lowest expense, savings advice, budget health, UPI payments, and recent transaction history.
+            3. Answer fluently in the user's language: English, Tamil (தமிழ்), or Tanglish.
+            4. Keep answers structured, insightful, concise, and friendly with emojis.
+            5. Always use the active currency symbol (${context.currencySymbol}).
+        """.trimIndent()
+    }
+
+    fun offlineAnswerFinancialQuery(query: String, context: FinancialContextData): String {
+        val lower = query.lowercase().trim()
+        val cur = context.currencySymbol
+        val sdf = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
+
+        // 1. Income / Inflow query
+        if (lower.contains("income") || lower.contains("salary") || lower.contains("earned") || lower.contains("வருமானம்") || lower.contains("inflow")) {
+            val incomeTx = context.recentTransactions.filter { it.type == TransactionType.INCOME }
+            val topIncome = incomeTx.maxByOrNull { it.amount }
+            return "📊 **Total Income / Inflow**: $cur${String.format(Locale.US, "%,.2f", context.totalIncome)}\n" +
+                    "• Recorded **${incomeTx.size}** income entries.\n" +
+                    (if (topIncome != null) "• Primary Income Source: **${topIncome.title}** ($cur${topIncome.amount.toInt()})\n" else "") +
+                    "• Current Net Savings Rate: **${context.savingsRate}%**"
+        }
+
+        // 2. Total Expense / Outflow query
+        if (lower.contains("expense") || lower.contains("spent") || lower.contains("spending") || lower.contains("செலவு") || lower.contains("outflow") || lower.contains("total spend")) {
+            val topCategory = context.categorySpendMap.maxByOrNull { it.value }
+            val sb = StringBuilder()
+            sb.append("💸 **Total Expenses**: $cur${String.format(Locale.US, "%,.2f", context.totalExpense)}\n")
+            if (topCategory != null) {
+                sb.append("• Highest Spending Category: **${topCategory.key}** ($cur${topCategory.value.toInt()})\n")
+            }
+            sb.append("• Total Transactions Recorded: **${context.recentTransactions.size}**\n")
+            sb.append("• Net Balance: **$cur${String.format(Locale.US, "%,.2f", context.netBalance)}**")
+            return sb.toString()
+        }
+
+        // 3. Balance / Net Worth / Cashflow query
+        if (lower.contains("balance") || lower.contains("net") || lower.contains("surplus") || lower.contains("deficit") || lower.contains("மீதி") || lower.contains("பணம்")) {
+            val status = if (context.netBalance >= 0) "Surplus (Positive Cashflow) 🟢" else "Deficit (Expenses exceed Income) 🔴"
+            return "💰 **Current Cash Flow & Balance Snapshot**\n" +
+                    "• **Net Balance**: $cur${String.format(Locale.US, "%,.2f", context.netBalance)} ($status)\n" +
+                    "• **Total Income**: +$cur${String.format(Locale.US, "%,.2f", context.totalIncome)}\n" +
+                    "• **Total Expenses**: -$cur${String.format(Locale.US, "%,.2f", context.totalExpense)}\n" +
+                    "• **Savings Rate**: ${context.savingsRate}%"
+        }
+
+        // 4. UPI Payments / Digital transactions query
+        if (lower.contains("upi") || lower.contains("gpay") || lower.contains("phonepe") || lower.contains("paytm") || lower.contains("qr")) {
+            val upiTx = context.recentTransactions.filter { it.paymentMethod.equals("UPI", ignoreCase = true) || it.upiId != null }
+            val upiTotal = upiTx.sumOf { it.amount }
+            val sb = StringBuilder()
+            sb.append("⚡ **UPI Transactions Summary**\n")
+            sb.append("• Total UPI Spend: **$cur${String.format(Locale.US, "%,.2f", upiTotal)}** across **${upiTx.size}** transactions.\n")
+            if (upiTx.isNotEmpty()) {
+                sb.append("\n**Recent UPI Payments:**\n")
+                upiTx.take(5).forEach { tx ->
+                    sb.append("• ${sdf.format(Date(tx.dateMillis))} — **${tx.title}**: $cur${tx.amount.toInt()} (${tx.category})\n")
+                }
+            }
+            return sb.toString().trim()
+        }
+
+        // 5. Category specific query (Food, Transport, Shopping, Entertainment, etc.)
+        for ((cat, amount) in context.categorySpendMap) {
+            val catLower = cat.lowercase()
+            val catTokens = catLower.split(" ", "&", "/")
+            if (catTokens.any { it.length > 2 && lower.contains(it) }) {
+                val catTx = context.recentTransactions.filter { it.category.equals(cat, ignoreCase = true) }
+                val sb = StringBuilder()
+                sb.append("🍽️ **$cat Spending Breakdown**\n")
+                sb.append("• Total Spent: **$cur${String.format(Locale.US, "%,.2f", amount)}**\n")
+                sb.append("• Number of Entries: **${catTx.size}**\n")
+                if (catTx.isNotEmpty()) {
+                    sb.append("\n**Recent Entries in $cat:**\n")
+                    catTx.take(4).forEach { tx ->
+                        sb.append("• ${sdf.format(Date(tx.dateMillis))} — **${tx.title}**: $cur${tx.amount.toInt()} via ${tx.paymentMethod}\n")
+                    }
+                }
+                return sb.toString().trim()
+            }
+        }
+
+        // 6. Budgets & Goals query
+        if (lower.contains("budget") || lower.contains("goal") || lower.contains("saving") || lower.contains("target") || lower.contains("சேமிப்பு")) {
+            val sb = StringBuilder()
+            sb.append("🎯 **Budgets & Savings Goals Overview**\n")
+            if (context.budgets.isNotEmpty()) {
+                sb.append("\n**Category Budgets:**\n")
+                context.budgets.forEach { b ->
+                    val spent = context.categorySpendMap[b.categoryName] ?: 0.0
+                    val pct = if (b.monthlyLimit > 0) ((spent / b.monthlyLimit) * 100).toInt() else 0
+                    val alert = if (pct >= 100) "🚨 Over Budget!" else if (pct >= 80) "⚠️ Warning" else "✅ On Track"
+                    sb.append("• **${b.categoryName}**: $cur${spent.toInt()} / $cur${b.monthlyLimit.toInt()} ($pct%) — $alert\n")
+                }
+            } else {
+                sb.append("• No active monthly budgets set.\n")
+            }
+            if (context.savingsGoals.isNotEmpty()) {
+                sb.append("\n**Savings Goals:**\n")
+                context.savingsGoals.forEach { g ->
+                    val pct = if (g.targetAmount > 0) ((g.currentAmount / g.targetAmount) * 100).toInt() else 0
+                    sb.append("• **${g.title}**: $cur${g.currentAmount.toInt()} / $cur${g.targetAmount.toInt()} ($pct%)\n")
+                }
+            }
+            return sb.toString().trim()
+        }
+
+        // 7. Highest / Largest expense query
+        if (lower.contains("highest") || lower.contains("biggest") || lower.contains("largest") || lower.contains("maximum") || lower.contains("max") || lower.contains("அதிக")) {
+            val highest = context.recentTransactions.filter { it.type == TransactionType.EXPENSE }.maxByOrNull { it.amount }
+            return if (highest != null) {
+                "🔝 **Highest Recorded Expense**\n" +
+                        "• **${highest.title}**: $cur${String.format(Locale.US, "%,.2f", highest.amount)}\n" +
+                        "• Category: **${highest.category}**\n" +
+                        "• Date: ${sdf.format(Date(highest.dateMillis))}\n" +
+                        "• Payment Method: ${highest.paymentMethod}"
+            } else {
+                "No expense transactions recorded yet."
+            }
+        }
+
+        // 8. Recent transactions / History query
+        if (lower.contains("recent") || lower.contains("history") || lower.contains("last") || lower.contains("transactions") || lower.contains("பரிவர்த்தனை")) {
+            val sb = StringBuilder()
+            sb.append("📜 **Recent Transaction History** (Total: ${context.recentTransactions.size})\n\n")
+            if (context.recentTransactions.isEmpty()) {
+                sb.append("No transactions logged yet. Use Voice Entry, Scan UPI, or Add Transaction to record one!")
+            } else {
+                context.recentTransactions.take(6).forEach { tx ->
+                    val sign = if (tx.type == TransactionType.INCOME) "+" else "-"
+                    sb.append("• ${sdf.format(Date(tx.dateMillis))} — **${tx.title}**: $sign$cur${tx.amount.toInt()} (${tx.category}) via ${tx.paymentMethod}\n")
+                }
+            }
+            return sb.toString().trim()
+        }
+
+        // Default Comprehensive Summary
+        val topCat = context.categorySpendMap.maxByOrNull { it.value }
+        return "✨ **Zenith Financial Summary for ${context.currentUserName}**\n\n" +
+                "• **Net Balance**: $cur${String.format(Locale.US, "%,.2f", context.netBalance)}\n" +
+                "• **Total Inflow**: +$cur${String.format(Locale.US, "%,.2f", context.totalIncome)}\n" +
+                "• **Total Outflow**: -$cur${String.format(Locale.US, "%,.2f", context.totalExpense)}\n" +
+                "• **Savings Rate**: ${context.savingsRate}%\n" +
+                (if (topCat != null) "• **Top Spending Category**: ${topCat.key} ($cur${topCat.value.toInt()})\n" else "") +
+                "• **Total Transactions**: ${context.recentTransactions.size} recorded.\n\n" +
+                "💡 *Tip: You can ask specific questions like 'How much on Food?', 'Show UPI payments', 'Budget status', or 'Highest expense'.*"
+    }
+
     private fun callGeminiApi(apiKey: String, systemInstruction: String, promptText: String): String {
-        val url = URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$apiKey")
-        val conn = url.openConnection() as HttpURLConnection
-        conn.requestMethod = "POST"
-        conn.setRequestProperty("Content-Type", "application/json")
-        conn.doOutput = true
-        conn.connectTimeout = 3500
-        conn.readTimeout = 4500
+        val models = listOf("gemini-2.0-flash", "gemini-1.5-flash")
+        var lastError: Exception? = null
 
-        val requestPayload = JSONObject().apply {
-            put("systemInstruction", JSONObject().apply {
-                put("parts", JSONArray().put(JSONObject().apply { put("text", systemInstruction) }))
-            })
-            put("generationConfig", JSONObject().apply {
-                put("temperature", 0.1)
-                put("maxOutputTokens", 256)
-                put("responseMimeType", "application/json")
-            })
-            put("contents", JSONArray().put(JSONObject().apply {
-                put("parts", JSONArray().put(JSONObject().apply { put("text", promptText) }))
-            }))
+        for (modelName in models) {
+            val startTime = System.currentTimeMillis()
+            try {
+                val url = URL("https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey")
+                Log.d("Zenith_AI", "Calling Gemini API endpoint: $url with model: $modelName")
+
+                val conn = url.openConnection() as HttpURLConnection
+                conn.requestMethod = "POST"
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.doOutput = true
+                conn.connectTimeout = 10000
+                conn.readTimeout = 15000
+
+                val requestPayload = JSONObject().apply {
+                    put("systemInstruction", JSONObject().apply {
+                        put("parts", JSONArray().put(JSONObject().apply { put("text", systemInstruction) }))
+                    })
+                    put("generationConfig", JSONObject().apply {
+                        put("temperature", 0.2)
+                        put("maxOutputTokens", 512)
+                    })
+                    put("contents", JSONArray().put(JSONObject().apply {
+                        put("parts", JSONArray().put(JSONObject().apply { put("text", promptText) }))
+                    }))
+                }
+
+                OutputStreamWriter(conn.outputStream).use { writer ->
+                    writer.write(requestPayload.toString())
+                    writer.flush()
+                }
+
+                val responseCode = conn.responseCode
+                val latency = System.currentTimeMillis() - startTime
+                Log.i("Zenith_AI", "Gemini HTTP response code: $responseCode from $modelName in ${latency}ms")
+
+                if (responseCode == 200) {
+                    val responseString = conn.inputStream.bufferedReader().readText()
+                    Log.d("Zenith_AI", "Gemini API Response: $responseString")
+                    val respObj = JSONObject(responseString)
+                    val candidates = respObj.optJSONArray("candidates")
+                    val firstCandidate = candidates?.optJSONObject(0)
+                    val content = firstCandidate?.optJSONObject("content")
+                    val parts = content?.optJSONArray("parts")
+                    val firstPart = parts?.optJSONObject(0)
+                    val responseText = firstPart?.optString("text") ?: ""
+                    if (responseText.isNotBlank()) {
+                        return responseText
+                    }
+                } else {
+                    val errorBody = conn.errorStream?.bufferedReader()?.readText() ?: "No error body"
+                    Log.e("Zenith_AI", "Gemini API error ($responseCode) on $modelName: $errorBody")
+                }
+            } catch (e: Exception) {
+                lastError = e
+                Log.w("Zenith_AI", "Exception calling Gemini API with $modelName: ${e.message}")
+            }
         }
 
-        OutputStreamWriter(conn.outputStream).use { writer ->
-            writer.write(requestPayload.toString())
-            writer.flush()
-        }
-
-        if (conn.responseCode == 200) {
-            val responseString = conn.inputStream.bufferedReader().readText()
-            val respObj = JSONObject(responseString)
-            val candidates = respObj.optJSONArray("candidates")
-            val firstCandidate = candidates?.optJSONObject(0)
-            val content = firstCandidate?.optJSONObject("content")
-            val parts = content?.optJSONArray("parts")
-            val firstPart = parts?.optJSONObject(0)
-            return firstPart?.optString("text") ?: ""
-        } else {
-            throw RuntimeException("Gemini API error code: ${conn.responseCode}")
-        }
+        throw lastError ?: RuntimeException("Gemini API request failed on all attempted endpoints.")
     }
 
     // --- Offline NLP Rule-Based Tamil, Tanglish & English Parser ---

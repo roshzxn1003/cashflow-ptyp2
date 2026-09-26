@@ -39,6 +39,8 @@ data class CashFlowUiState(
     val parsedReceipt: ParsedReceipt? = null,
     val aiCoachAdvice: String? = null,
     val isAiCoachLoading: Boolean = false,
+    val aiAssistantMessages: List<com.example.data.ai.AssistantChatMessage> = emptyList(),
+    val isAiAssistantLoading: Boolean = false,
     val selectedTab: Int = 0,
     val scannedBarcodeValue: String? = null,
     val isScannedBarcodeSheetShowing: Boolean = false,
@@ -73,6 +75,16 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
 
     private val _aiCoachAdvice = MutableStateFlow<String?>(null)
     private val _aiCoachLoading = MutableStateFlow(false)
+
+    private val _aiAssistantMessages = MutableStateFlow<List<com.example.data.ai.AssistantChatMessage>>(
+        listOf(
+            com.example.data.ai.AssistantChatMessage(
+                text = "👋 Hello! I am **Zenith AI**, your financial intelligence assistant.\n\nI have complete, real-time access to your transactions, account balance, category spending, budgets, savings goals, and UPI payments.\n\nAsk me anything in English or தமிழ் (e.g. *\"How much did I spend on Food?\"*, *\"What was my biggest expense?\"*, *\"Show my recent UPI transactions\"*).",
+                isUser = false
+            )
+        )
+    )
+    private val _isAiAssistantLoading = MutableStateFlow(false)
 
     private val _scannedBarcodeValue = MutableStateFlow<String?>(null)
     private val _isScannedBarcodeSheetShowing = MutableStateFlow(false)
@@ -269,13 +281,19 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
     }
 
     private val aiState: Flow<AiState> = combine(
-        _receiptDialogShowing,
-        _receiptProcessing,
-        _parsedReceipt,
-        _aiCoachAdvice,
-        _aiCoachLoading
-    ) { receiptShow, receiptProc, receiptParsed, coachAdvice, coachLoading ->
-        AiState(receiptShow, receiptProc, receiptParsed, coachAdvice, coachLoading)
+        combine(_receiptDialogShowing, _receiptProcessing, _parsedReceipt, ::Triple),
+        combine(_aiCoachAdvice, _aiCoachLoading, ::Pair),
+        combine(_aiAssistantMessages, _isAiAssistantLoading, ::Pair)
+    ) { r, c, a ->
+        AiState(
+            receiptShow = r.first,
+            receiptProc = r.second,
+            receiptParsed = r.third,
+            coachAdvice = c.first,
+            coachLoading = c.second,
+            assistantMessages = a.first,
+            assistantLoading = a.second
+        )
     }
 
     private val scannedItemState: Flow<ScannedItemState> = combine(
@@ -325,6 +343,8 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
             parsedReceipt = ai.receiptParsed,
             aiCoachAdvice = ai.coachAdvice,
             isAiCoachLoading = ai.coachLoading,
+            aiAssistantMessages = ai.assistantMessages,
+            isAiAssistantLoading = ai.assistantLoading,
             selectedTab = filter.tab,
             scannedBarcodeValue = scannedItem.barcodeValue,
             isScannedBarcodeSheetShowing = scannedItem.sheetShowing
@@ -864,6 +884,69 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         _parsedVoice.value = null
     }
 
+    fun getFinancialContextSnapshot(): com.example.data.ai.FinancialContextData {
+        val currentTxs = uiState.value.transactions
+        val income = getTotalIncome(currentTxs)
+        val expense = getTotalExpense(currentTxs)
+        val balance = getNetBalance(currentTxs)
+        val savingsRate = if (income > 0) (((income - expense) / income) * 100).toInt().coerceAtLeast(0) else 0
+
+        val categoryMap = currentTxs
+            .filter { it.type == TransactionType.EXPENSE }
+            .groupBy { it.category }
+            .mapValues { entry -> entry.value.sumOf { it.amount } }
+
+        val paymentMethodMap = currentTxs
+            .filter { it.type == TransactionType.EXPENSE }
+            .groupBy { it.paymentMethod }
+            .mapValues { entry -> entry.value.sumOf { it.amount } }
+
+        return com.example.data.ai.FinancialContextData(
+            currentUserName = currentUserName,
+            scope = if (_currentFinanceScope.value == FinanceScope.FAMILY) "Family" else "Personal",
+            currencySymbol = _currencySymbol.value,
+            totalIncome = income,
+            totalExpense = expense,
+            netBalance = balance,
+            savingsRate = savingsRate,
+            categorySpendMap = categoryMap,
+            paymentMethodSpendMap = paymentMethodMap,
+            recentTransactions = currentTxs,
+            budgets = uiState.value.budgets,
+            savingsGoals = uiState.value.savingsGoals,
+            familyMembers = emptyList()
+        )
+    }
+
+    fun askAiAssistant(query: String) {
+        val trimmed = query.trim()
+        if (trimmed.isBlank()) return
+        val userMsg = com.example.data.ai.AssistantChatMessage(text = trimmed, isUser = true)
+        _aiAssistantMessages.value = _aiAssistantMessages.value + userMsg
+
+        viewModelScope.launch {
+            _isAiAssistantLoading.value = true
+            val snapshot = getFinancialContextSnapshot()
+            val answer = GeminiAiService.queryFinancialAssistant(
+                userQuery = trimmed,
+                context = snapshot,
+                conversationHistory = _aiAssistantMessages.value
+            )
+            val botMsg = com.example.data.ai.AssistantChatMessage(text = answer, isUser = false)
+            _aiAssistantMessages.value = _aiAssistantMessages.value + botMsg
+            _isAiAssistantLoading.value = false
+        }
+    }
+
+    fun clearAiAssistantChat() {
+        _aiAssistantMessages.value = listOf(
+            com.example.data.ai.AssistantChatMessage(
+                text = "👋 Hello! I am **Zenith AI**, your financial intelligence assistant.\n\nI have complete, real-time access to your transactions, account balance, category spending, budgets, savings goals, and UPI payments.\n\nAsk me anything in English or தமிழ் (e.g. *\"How much did I spend on Food?\"*, *\"What was my biggest expense?\"*, *\"Show my recent UPI transactions\"*).",
+                isUser = false
+            )
+        )
+    }
+
     fun openUpiDialog() {
         _upiDialogShowing.value = true
     }
@@ -1152,7 +1235,9 @@ private data class AiState(
     val receiptProc: Boolean,
     val receiptParsed: ParsedReceipt?,
     val coachAdvice: String?,
-    val coachLoading: Boolean
+    val coachLoading: Boolean,
+    val assistantMessages: List<com.example.data.ai.AssistantChatMessage> = emptyList(),
+    val assistantLoading: Boolean = false
 )
 
 private data class ScannedItemState(

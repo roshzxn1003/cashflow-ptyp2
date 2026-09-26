@@ -60,7 +60,9 @@ fun UpiPaymentFlow(
     val context = LocalContext.current
     var showAppPicker by remember { mutableStateOf(false) }
     var showPaymentConfirm by remember { mutableStateOf(false) }
+    var upiResultState by remember { mutableStateOf<com.example.data.upi.UpiIntentResult?>(null) }
     var returnedTxnRef by remember { mutableStateOf<String?>(null) }
+    var userEditableTxnRef by remember { mutableStateOf("") }
 
     val upiApps = remember { UpiService.installedUpiApps(context) }
 
@@ -68,24 +70,28 @@ fun UpiPaymentFlow(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
         val mapped = UpiService.mapResult(result.resultCode, result.data)
-        if (mapped.launched) {
-            returnedTxnRef = mapped.returnedTxnRef
-            showPaymentConfirm = true
-        } else {
-            Toast.makeText(context, "Payment flow cancelled or could not be opened.", Toast.LENGTH_SHORT).show()
-        }
+        android.util.Log.i("Zenith_UPI", "UPI Activity result mapped: $mapped")
+        upiResultState = mapped
+        returnedTxnRef = mapped.returnedTxnRef
+        userEditableTxnRef = mapped.returnedTxnRef ?: ""
+        // Always open confirmation so user can save or discard payment
+        showPaymentConfirm = true
     }
 
     fun launchPayment(targetPackage: String?) {
         val request = payRequest ?: return
+        val generatedRef = "ZNTH-" + UUID.randomUUID().toString().take(8).uppercase(Locale.US)
         val info = UpiPaymentInfo(
             payeeAddress = request.vpa.trim(),
-            payeeName = request.purpose.trim(),
+            payeeName = request.purpose.trim().ifBlank { "Zenith Payee" },
             amount = String.format(Locale.US, "%.2f", request.amount),
             currency = "INR",
-            note = request.purpose.trim(),
-            txnRef = "ZNTH-" + UUID.randomUUID().toString().take(12)
+            note = request.purpose.trim().ifBlank { "Zenith Payment" },
+            txnRef = generatedRef
         )
+        returnedTxnRef = generatedRef
+        userEditableTxnRef = generatedRef
+        
         val intent = UpiService.buildPayIntent(info, targetPackage)
         if (intent == null) {
             Toast.makeText(context, "No UPI app found on this device.", Toast.LENGTH_SHORT).show()
@@ -95,13 +101,19 @@ fun UpiPaymentFlow(
         try {
             launcher.launch(intent)
         } catch (e: ActivityNotFoundException) {
+            android.util.Log.e("Zenith_UPI", "ActivityNotFoundException when launching UPI", e)
             Toast.makeText(context, "No UPI app available to handle this payment.", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            android.util.Log.e("Zenith_UPI", "Error launching UPI intent", e)
+            Toast.makeText(context, "Could not open UPI app: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
         }
     }
 
     LaunchedEffect(payRequest) {
         if (payRequest != null) {
             returnedTxnRef = null
+            userEditableTxnRef = ""
+            upiResultState = null
             if (!payRequest.targetPackage.isNullOrBlank()) {
                 showAppPicker = false
                 launchPayment(payRequest.targetPackage)
@@ -115,7 +127,10 @@ fun UpiPaymentFlow(
     if (showAppPicker) {
         val request = payRequest
         if (request != null) {
-            Dialog(onDismissRequest = { showAppPicker = false }) {
+            Dialog(onDismissRequest = { 
+                showAppPicker = false
+                onDismiss()
+            }) {
                 Surface(
                     shape = RoundedCornerShape(20.dp),
                     color = SlateDarkSurface,
@@ -124,18 +139,18 @@ fun UpiPaymentFlow(
                 ) {
                     Column(modifier = Modifier.padding(20.dp)) {
                         Text(
-                            text = "Pay with",
-                            fontSize = 16.sp,
+                            text = "Pay with UPI",
+                            fontSize = 17.sp,
                             fontWeight = FontWeight.Bold,
                             color = SlateDarkTextPrimary
                         )
                         Text(
-                            text = "Select a UPI app installed on this device.",
+                            text = "Choose an installed UPI application to transfer money.",
                             fontSize = 12.sp,
                             color = SlateDarkTextSecondary,
                             modifier = Modifier.padding(top = 2.dp)
                         )
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(14.dp))
 
                         if (upiApps.isEmpty()) {
                             Surface(
@@ -144,68 +159,86 @@ fun UpiPaymentFlow(
                                 border = BorderStroke(1.dp, GoalAmber.copy(alpha = 0.3f)),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
+                                Column(modifier = Modifier.padding(14.dp)) {
                                     Text(
-                                        text = "No UPI app found on this device.",
+                                        text = "No UPI app detected",
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = SlateDarkTextPrimary
                                     )
                                     Spacer(modifier = Modifier.height(6.dp))
                                     Text(
-                                        text = "Install Google Pay, PhonePe or BHIM to pay via UPI. You can still record this as a manual UPI transaction.",
+                                        text = "Install Google Pay, PhonePe, Paytm, or BHIM. You can also record this payment manually.",
                                         fontSize = 11.sp,
                                         color = SlateDarkTextSecondary
                                     )
-                                    Spacer(modifier = Modifier.height(10.dp))
-                                    Button(
-                                        onClick = {
-                                            val store = Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/search?q=upi%20payment"))
-                                            try { context.startActivity(store) } catch (e: Exception) { }
-                                        },
-                                        modifier = Modifier.fillMaxWidth().height(40.dp),
-                                        shape = RoundedCornerShape(10.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF06B6D4))
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        Text("Open Play Store", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        Button(
+                                            onClick = {
+                                                val store = Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/search?q=upi%20payment"))
+                                                try { context.startActivity(store) } catch (e: Exception) { }
+                                            },
+                                            modifier = Modifier.weight(1f).height(40.dp),
+                                            shape = RoundedCornerShape(10.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF06B6D4))
+                                        ) {
+                                            Text("Play Store", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        }
+
+                                        OutlinedButton(
+                                            onClick = {
+                                                showAppPicker = false
+                                                showPaymentConfirm = true
+                                            },
+                                            modifier = Modifier.weight(1f).height(40.dp),
+                                            shape = RoundedCornerShape(10.dp)
+                                        ) {
+                                            Text("Record Manually", fontSize = 11.sp)
+                                        }
                                     }
                                 }
                             }
                         } else {
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Surface(
                                     shape = RoundedCornerShape(12.dp),
-                                    color = Color(0xFF06B6D4).copy(alpha = 0.12f),
-                                    border = BorderStroke(1.dp, Color(0xFF06B6D4).copy(alpha = 0.4f)),
+                                    color = Color(0xFF06B6D4).copy(alpha = 0.15f),
+                                    border = BorderStroke(1.dp, Color(0xFF06B6D4).copy(alpha = 0.45f)),
                                     modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { launchPayment(null) }
                                 ) {
                                     Row(
-                                        modifier = Modifier.padding(12.dp),
+                                        modifier = Modifier.padding(14.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = Color(0xFF06B6D4), modifier = Modifier.size(20.dp))
+                                        Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = Color(0xFF06B6D4), modifier = Modifier.size(22.dp))
                                         Spacer(modifier = Modifier.width(12.dp))
-                                        Text(
-                                            text = "All UPI apps",
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = SlateDarkTextPrimary
-                                        )
-                                        Spacer(modifier = Modifier.weight(1f))
-                                        Text("Choose app", fontSize = 11.sp, color = SlateDarkTextSecondary)
+                                        Column {
+                                            Text(
+                                                text = "System UPI Chooser",
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = SlateDarkTextPrimary
+                                            )
+                                            Text("Open standard Android app selection tray", fontSize = 11.sp, color = SlateDarkTextSecondary)
+                                        }
                                     }
                                 }
                                 upiApps.forEach { app: UpiApp ->
                                     Surface(
                                         shape = RoundedCornerShape(12.dp),
                                         color = SlateDarkSurfaceVariant,
+                                        border = BorderStroke(1.dp, GlassBorderColor),
                                         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { launchPayment(app.packageName) }
                                     ) {
                                         Row(
-                                            modifier = Modifier.padding(12.dp),
+                                            modifier = Modifier.padding(14.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, tint = EmeraldDarkPrimary, modifier = Modifier.size(20.dp))
+                                            Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, tint = EmeraldDarkPrimary, modifier = Modifier.size(22.dp))
                                             Spacer(modifier = Modifier.width(12.dp))
                                             Text(
                                                 text = app.label,
@@ -228,67 +261,120 @@ fun UpiPaymentFlow(
     if (showPaymentConfirm) {
         val request = payRequest
         if (request != null) {
+            val status = upiResultState?.status ?: "PENDING"
+            val isExplicitSuccess = upiResultState?.isExplicitSuccess == true
+            val isExplicitFailure = upiResultState?.isExplicitFailure == true
+
             Dialog(onDismissRequest = { }) {
                 Surface(
-                    shape = RoundedCornerShape(20.dp),
+                    shape = RoundedCornerShape(22.dp),
                     color = SlateDarkSurface,
                     border = BorderStroke(1.dp, GlassBorderColor),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp)
                 ) {
                     Column(
                         modifier = Modifier.padding(20.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text(
-                            text = "Payment completed?",
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = SlateDarkTextPrimary
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
+                        // Status Badge
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = when {
+                                isExplicitSuccess -> IncomeGreen.copy(alpha = 0.2f)
+                                isExplicitFailure -> ExpenseRed.copy(alpha = 0.2f)
+                                else -> GoalAmber.copy(alpha = 0.2f)
+                            },
+                            border = BorderStroke(
+                                1.dp,
+                                when {
+                                    isExplicitSuccess -> IncomeGreen.copy(alpha = 0.5f)
+                                    isExplicitFailure -> ExpenseRed.copy(alpha = 0.5f)
+                                    else -> GoalAmber.copy(alpha = 0.5f)
+                                }
+                            )
+                        ) {
+                            Text(
+                                text = when {
+                                    isExplicitSuccess -> "✓ UPI Payment Verified"
+                                    isExplicitFailure -> "⚠️ UPI App Reported Failure"
+                                    else -> "UPI Payment Handshake"
+                                },
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = when {
+                                    isExplicitSuccess -> IncomeGreen
+                                    isExplicitFailure -> ExpenseRed
+                                    else -> GoalAmber
+                                },
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
                         Text(
                             text = "$currencySymbol${String.format(Locale.US, "%.2f", request.amount)}",
-                            fontSize = 28.sp,
+                            fontSize = 30.sp,
                             fontWeight = FontWeight.Black,
-                            color = Color(0xFF06B6D4)
+                            color = if (isExplicitSuccess) IncomeGreen else Color(0xFF06B6D4)
                         )
                         if (request.purpose.isNotBlank()) {
                             Text(
                                 text = request.purpose,
-                                fontSize = 13.sp,
-                                color = SlateDarkTextSecondary,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = SlateDarkTextPrimary,
                                 modifier = Modifier.padding(top = 2.dp)
                             )
                         }
                         if (request.vpa.isNotBlank()) {
                             Text(
-                                text = request.vpa,
+                                text = "To: ${request.vpa}",
                                 fontSize = 12.sp,
                                 color = SlateDarkTextSecondary,
                                 modifier = Modifier.padding(top = 2.dp)
                             )
                         }
-                        Text(
-                            text = "Confirm this only after the payment succeeded in the UPI app.",
-                            fontSize = 11.sp,
-                            color = SlateDarkTextMuted,
-                            modifier = Modifier.padding(top = 10.dp)
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Transaction ID / Reference
+                        OutlinedTextField(
+                            value = userEditableTxnRef,
+                            onValueChange = { userEditableTxnRef = it },
+                            label = { Text("UPI Txn ID / Ref", fontSize = 11.sp) },
+                            placeholder = { Text("e.g. ZNTH-123456 or UTR") },
+                            shape = RoundedCornerShape(12.dp),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color(0xFF06B6D4),
+                                unfocusedBorderColor = GlassBorderColor,
+                                focusedContainerColor = SlateDarkSurfaceVariant,
+                                unfocusedContainerColor = SlateDarkSurfaceVariant,
+                                focusedTextColor = SlateDarkTextPrimary,
+                                unfocusedTextColor = SlateDarkTextPrimary
+                            ),
+                            modifier = Modifier.fillMaxWidth().height(56.dp)
                         )
-                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
                         Button(
                             onClick = {
                                 showPaymentConfirm = false
-                                onSaveConfirmed(returnedTxnRef)
+                                onSaveConfirmed(userEditableTxnRef.ifBlank { returnedTxnRef })
                             },
                             modifier = Modifier.fillMaxWidth().height(48.dp).testTag("btn_upi_save"),
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = EmeraldDarkPrimary)
                         ) {
                             Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Save Transaction", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Save Transaction to Zenith", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         }
+
                         Spacer(modifier = Modifier.height(8.dp))
+
                         TextButton(
                             onClick = {
                                 showPaymentConfirm = false
@@ -297,7 +383,7 @@ fun UpiPaymentFlow(
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Don't Save", fontSize = 13.sp, color = SlateDarkTextSecondary)
+                            Text("Discard", fontSize = 13.sp, color = SlateDarkTextSecondary)
                         }
                     }
                 }

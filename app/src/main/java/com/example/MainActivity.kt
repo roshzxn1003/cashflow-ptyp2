@@ -345,12 +345,17 @@ fun CashFlowMainApp(viewModel: CashFlowViewModel) {
         }
 
         if (uiState.isVoiceDialogShowing) {
-            VoiceAiModal(                isProcessing = uiState.isVoiceProcessing,
+            VoiceAiModal(
+                isProcessing = uiState.isVoiceProcessing,
                 parsedExpense = uiState.parsedVoiceExpense,
                 currencySymbol = uiState.currencySymbol,
+                assistantMessages = uiState.aiAssistantMessages,
+                isAssistantLoading = uiState.isAiAssistantLoading,
                 onDismiss = { viewModel.closeVoiceDialog() },
                 onProcessPrompt = { prompt -> viewModel.processVoicePrompt(prompt) },
                 onProcessAudio = { },
+                onAskAssistant = { query -> viewModel.askAiAssistant(query) },
+                onClearChat = { viewModel.clearAiAssistantChat() },
                 onConfirmSave = { title, amount, category, paymentMethod ->
                     viewModel.confirmVoiceExpenseWithEdits(title, amount, category, paymentMethod)
                 },
